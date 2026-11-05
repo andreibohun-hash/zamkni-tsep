@@ -1,0 +1,1585 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Замкни цепь</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#232838">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+@font-face{font-family:"Nunito";font-style:normal;font-weight:200 1000;font-display:swap;src:url(assets/fonts/nunito-cyr.woff2) format("woff2");unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
+@font-face{font-family:"Nunito";font-style:normal;font-weight:200 1000;font-display:swap;src:url(assets/fonts/nunito-latin.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+/* Палитра — одно место (PROTO-BASE §9). Мастерская электрика: тёмная стена, синяя панель на деревянной раме, медь и латунь.
+   3D-фон рисует шейдер теми же цветами (VIEW.BG_*). */
+:root{
+  --bg:#1b1f2a; --ink:#ffffff; --ink2:#23283a; --muted:#c9d2e6;
+  --panel:#3d6fb0; --panel2:#244a80; --accent:#ffcf3a; --accent-ink:#4a2a00; --danger:#ff4d4d; --ok:#ffd76a; --card:#fbfaf5;
+  --frame-w:440px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.3 "Nunito", system-ui, sans-serif;font-weight:700;
+  overflow:hidden;overscroll-behavior:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+#frame{position:relative;width:min(100vw,var(--frame-w));height:100dvh;height:100svh;margin:0 auto;background:linear-gradient(#3a4256,#20242f);
+  display:flex;flex-direction:column;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);overflow:hidden}
+header{position:absolute;left:0;right:0;top:env(safe-area-inset-top);z-index:3;display:flex;justify-content:space-between;align-items:center;padding:10px 12px;pointer-events:none}
+header .title{display:flex;flex-direction:column;align-items:center;text-shadow:0 2px 0 rgba(0,0,0,.35)}
+header .title b{font-size:20px;font-weight:900;letter-spacing:.2px} header .title span{font-size:13px;color:var(--muted)}
+header button{pointer-events:auto}
+.ico{width:44px;height:44px;border-radius:14px;border:0;background:var(--panel);box-shadow:0 4px 0 var(--panel2);display:grid;place-items:center;cursor:pointer;padding:0}
+.ico svg{width:24px;height:24px;fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.ico.off .wave{display:none} .ico:not(.off) .slash{display:none}
+#hint{position:absolute;left:0;right:0;top:calc(env(safe-area-inset-top) + 66px);z-index:2;text-align:center;font-size:15px;color:#fff;padding:0 24px;pointer-events:none;
+  text-shadow:0 2px 0 rgba(0,0,0,.4)}
+#game{flex:1;position:relative;touch-action:none}
+#game canvas{position:absolute;inset:0;width:100%;height:100%;display:block;opacity:0;transition:opacity .35s}
+#game canvas.ready{opacity:1}
+footer{position:relative;z-index:3;display:flex;gap:10px;justify-content:center;padding:10px 14px calc(12px + env(safe-area-inset-bottom));
+  background:linear-gradient(rgba(20,24,34,0),rgba(20,24,34,.55))}
+footer button{flex:1;max-width:120px;height:56px;border:0;border-radius:16px;background:var(--panel);box-shadow:0 5px 0 var(--panel2);color:#fff;font:inherit;font-weight:800;font-size:14px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer}
+footer button svg{width:24px;height:24px;fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+footer button:disabled{opacity:.5}
+footer button.pulse{background:var(--accent);color:var(--accent-ink);box-shadow:0 5px 0 #d79c00;animation:pulse 1s ease-in-out infinite}
+footer button.pulse svg{stroke:var(--accent-ink)}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+button:active{transform:translateY(2px)}
+/* Плашки на месте (не попап): замыкание — красная, победа — тёплая. */
+.banner{position:absolute;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 64px);z-index:4;display:none;background:rgba(255,255,255,.96);color:var(--ink2);border-radius:18px;
+  padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.4);font-size:15px;line-height:1.3;gap:10px;align-items:center}
+.banner.show{display:flex}
+.banner b{display:block;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
+#dead b{color:var(--danger)} #won b{color:#c27c00}
+#dead .zap{flex:none;width:34px;height:34px} #won .zap{flex:none;width:34px;height:34px}
+.banner button{flex:none;border:0;border-radius:12px;background:var(--accent);color:var(--accent-ink);font:inherit;font-weight:900;padding:10px 12px;box-shadow:0 4px 0 #d79c00;cursor:pointer}
+#overlay{position:absolute;inset:0;z-index:5;display:none;align-items:center;justify-content:center;background:rgba(10,14,24,.55);padding:20px}
+#overlay.show{display:flex}
+.card{background:var(--card);color:var(--ink2);border-radius:26px;padding:24px 20px;max-width:350px;width:100%;text-align:center;box-shadow:0 14px 40px rgba(0,0,0,.45);
+  animation:pop .2s ease-out}
+@keyframes pop{from{transform:scale(.96)}to{transform:scale(1)}}  /* стартует с видимого состояния (§9) */
+.card h1.logo{margin:0 0 6px;font-size:40px;line-height:1.05;font-weight:1000;color:#fff;-webkit-text-stroke:2px #244a80;text-shadow:0 4px 0 #244a80}
+.card h1.logo i{font-style:normal;color:var(--accent)}
+.card h2{margin:0 0 8px;font-size:30px;font-weight:1000} .card p{color:#59607a;margin:0 0 16px;font-weight:700}
+.card button{font:inherit;font-weight:900;border:0;border-radius:14px;padding:12px 16px;background:#e3e9f6;color:var(--ink2);cursor:pointer;margin:4px}
+.card button.primary{background:var(--accent);color:var(--accent-ink);box-shadow:0 4px 0 #d79c00}
+.card button.big{font-size:20px;padding:14px 22px;width:100%}
+.levels{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px 0}
+.levels .lv{margin:0;padding:12px 0;font-size:18px}
+.levels .lv.done{background:#fff0b8;color:#8a5a00} .levels .lv.cur{outline:3px solid var(--panel)}
+.rules{text-align:left;padding-left:18px;margin:0 0 14px;color:#3a405a;font-weight:700} .rules li{margin:6px 0}
+#toast{position:absolute;left:50%;bottom:96px;transform:translateX(-50%);z-index:4;background:rgba(20,24,40,.9);color:#fff;padding:9px 16px;border-radius:14px;
+  pointer-events:none;opacity:.98;transition:opacity .25s;max-width:86%;text-align:center;font-size:15px}
+#toast.hide{opacity:0}
+@media (prefers-reduced-motion: reduce){ .card{animation:none} #toast{transition:none} footer button.pulse{animation:none} }
+</style>
+</head>
+<body>
+<div id="frame">
+  <header>
+    <button class="ico" id="btn-menu" aria-label="меню"><svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14"/></svg></button>
+    <div class="title"><b id="hud-level">1 · Щелчок</b><span id="hud-moves"></span></div>
+    <button class="ico" id="btn-mute" aria-label="звук"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6L8 10H4z"/><path class="wave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/><path class="slash" d="M16 9l5 6M21 9l-5 6"/></svg></button>
+  </header>
+  <div id="hint"></div>
+  <div id="game"><canvas id="gl"></canvas></div>
+  <div id="dead" class="banner"><svg class="zap" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z" fill="#ff4d4d" stroke="#8a1010" stroke-width="1.4" stroke-linejoin="round"/></svg>
+    <div><b id="dead-title">Короткое замыкание</b><span id="dead-text"></span></div><button id="dead-undo">Отменить</button></div>
+  <div id="won" class="banner"><svg class="zap" viewBox="0 0 24 24"><circle cx="12" cy="10" r="6.5" fill="#ffd76a" stroke="#a86a00" stroke-width="1.4"/><path d="M9 17h6M10 20h4" stroke="#a86a00" stroke-width="1.8" stroke-linecap="round"/></svg>
+    <div><b>Горит!</b><span id="won-text"></span></div><button id="won-next">Дальше</button></div>
+  <footer>
+    <button id="btn-undo"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>Отмена</button>
+    <button id="btn-reset"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg>Заново</button>
+    <button id="btn-hint"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg>Подсказка</button>
+  </footer>
+  <div id="overlay"><div class="card" id="card"></div></div>
+  <div id="toast" class="hide"></div>
+</div>
+<!-- three.js 0.185.1, вендорен файлом (CJS-сборка + шим exports → window.THREE). CDN не используется. -->
+<script>var module = { exports: {} }; var exports = module.exports;</script>
+<script src="vendor/three.cjs"></script>
+<script>window.THREE = module.exports; module = undefined; exports = undefined;</script>
+<script>
+'use strict';
+{ // весь код в блоке: three.cjs объявляет сотни глобальных const, одноимённые объявления на верхнем уровне упали бы
+/* ЯДРО */
+// ---------------------------------------------------------------------------
+// «Замкни цепь» v0.1 — ядро правил. Исполняется игрой и sim.mjs/test.mjs (core-load.mjs вырезает этот блок из index.html).
+//
+// Панель электрика: на винтах висят стеклянные подковы (дуга 270°, разрыв 90°), внутри — медная жила.
+// Подкова крутится вокруг винта щелчками по 45°. g — куда смотрит разрыв: 0 вверх, дальше по часовой на экране
+// (1 вверх-вправо, 2 вправо, 3 вниз-вправо, 4 вниз, 5 вниз-влево, 6 влево, 7 вверх-влево).
+// Концы подковы — по бокам разрыва, на направлениях g−1 и g+1: подкова соединяет две точки компаса через 90°.
+// Винты стоят на решётке с шагом 2R, поэтому боковые концы (С, В, Ю, З) соседних подков сходятся в одной точке — стык.
+//
+// Что касается конца подковы: клемма батарейки (+ или −), клемма лампочки, медный пятачок или конец соседней подковы.
+// Пятачок соединяет всё, что его касается. Выводы батарейки и лампочек — неподвижные провода до своих клемм.
+//
+//   • Цепь считается после каждого щелчка: жилы и пятачки сливают точки в узлы (union-find), лампочки — рёбра между узлами.
+//   • Короткое замыкание: + и − в одном узле (ток идёт в обход всех лампочек). Шунт: у лампочки оба вывода в одном узле,
+//     и через этот узел идёт ток (+ → … → −). И то и другое — искры, уровень проигран, отмена бесплатна.
+//   • Лампочка горит, если лежит на пути + → … → − по лампочкам. Победа — горят все лампочки и нет замыкания.
+//   • Замок: подкова не крутится, пока хоть раз не загорелась её лампочка.
+// Ход m: подкова m>>1, m чётный — по часовой, нечётный — против.
+// ---------------------------------------------------------------------------
+const CFG = {
+  R: 1.0,               // радиус осевой линии подковы, мировые единицы
+  TUBE_R: 0.17,         // радиус стеклянной трубки
+  STEP: 2.0,            // шаг решётки винтов (= 2R: концы соседних подков сходятся)
+  POS: 8,               // положений разрыва; щелчок — 45°
+  PAD_R: 0.16,          // радиус клеммы/пятачка у точки касания (вид и проверка раскладки)
+  EPS: 0.02,            // точки ближе — одна точка
+  CLICK_MS: 130,        // щелчок подковы (анимация; ядро не зависит)
+  FLOW_MS: 1300,        // ток бежит от + до лампочки и дальше до −
+  SPARK_MS: 900,        // искры и дым замыкания
+  SOLVE_LIMIT: 700000,  // предел состояний перебора
+  RANDOM_MOVES: 60,     // случайный бот: щелчков на партию
+};
+const DIR = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+const GNAME = ['вверх', 'вверх-вправо', 'вправо', 'вниз-вправо', 'вниз', 'вниз-влево', 'влево', 'вверх-влево'];
+
+// Детерминированный генератор (PROTO-BASE §5). Math.random() не используется.
+function mulberry32(seed){
+  let a = seed >>> 0;
+  return function(){
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Уровни — декларативная таблица. Раскладки нарисованы руками, стартовые углы подобраны перебором (tools/levelsearch.mjs).
+// Подкова: id, c/r — клетка решётки (центр = c·STEP, r·STEP; r растёт вверх), g — стартовое положение разрыва.
+// Ссылка на точку: «A.SW» — конец подковы A в направлении SW, или id пятачка/узла.
+// pads — медные пятачки: какие точки касания они покрывают. nodes — свободные клеммы (x, y) для выводов.
+// bat — батарейка: p (+), m (−), x/y — где лежит корпус. lamps — лампочки: a, b — выводы, x/y — где стоит.
+// locks — замки: подкова ring не крутится, пока не загорится лампочка lamp.
+const LEVELS = [
+  // 1. Один щелчок: подкова A соединяет + и лампочку; вторые выводы батарейки и лампочки сведены на одну клемму w.
+  { n: 1, name: 'Щелчок', hint: 'Тапни подкову — она повернётся по часовой',
+    rings: [{ id: 'A', c: 0, r: 0, g: 1 }],
+    nodes: [{ id: 'w', x: 2.3, y: 0 }],
+    bat: { p: 'A.SE', m: 'w', x: 1.55, y: -1.75 }, lamps: [{ id: 'L1', a: 'A.NE', b: 'w', x: 1.55, y: 1.75 }] },
+  // 2. Две подковы-«колена»: A ведёт + к лампочке, B — от лампочки к −. Поворот выбирает, какую пару концов соединить.
+  { n: 2, name: 'Две подковы', hint: 'Подкова соединяет то, чего касаются её концы',
+    rings: [{ id: 'A', c: 0, r: 0, g: 6 }, { id: 'B', c: 1, r: 0, g: 0 }],
+    bat: { p: 'A.W', m: 'B.E' }, lamps: [{ id: 'L1', a: 'A.N', b: 'B.N' }] },
+  // 3. Первое «ага»: снизу + и − рядом через пятачок — два тапа, и короткое замыкание. Ток надо вести верхом, через лампочку.
+  { n: 3, name: 'Через лампочку', hint: '',
+    rings: [{ id: 'A', c: 0, r: 0, g: 3 }, { id: 'B', c: 1, r: 0, g: 3 }],
+    pads: [{ id: 'u', tips: ['A.SE', 'B.SW'] }],
+    bat: { p: 'A.SW', m: 'B.SE' }, lamps: [{ id: 'L1', a: 'A.NW', b: 'B.NE' }] },
+  // 4. Лишняя подкова: X перемыкает выводы лампочки. Замкнёшь цепь, не убрав её, — ток пойдёт мимо лампочки.
+  { n: 4, name: 'Лишняя подкова', hint: '',
+    rings: [{ id: 'A', c: 0, r: 0, g: 6 }, { id: 'B', c: 1, r: 0, g: 0 }, { id: 'X', c: 0.5, r: 1, g: 4 }],
+    pads: [{ id: 'pa', tips: ['A.N', 'X.SW'] }, { id: 'pb', tips: ['B.N', 'X.SE'] }],
+    bat: { p: 'A.W', m: 'B.E' }, lamps: [{ id: 'L1', a: 'pa', b: 'pb', x: 1, y: 3.75 }] },
+  // 5. Две лампочки последовательно (столбик): левым боком через обе, правым через пятачки — замыкание.
+  { n: 5, name: 'Две лампочки', hint: 'Гореть должны обе',
+    rings: [{ id: 'A', c: 0, r: 0, g: 2 }, { id: 'B', c: 0, r: 1, g: 1 }, { id: 'C', c: 0, r: 2, g: 1 }],
+    pads: [{ id: 'u1', tips: ['A.NE', 'B.SE'] }, { id: 'u2', tips: ['B.NE', 'C.SE'] }],
+    bat: { p: 'A.SE', m: 'C.NE', x: 1.85, y: 2 }, lamps: [{ id: 'L1', a: 'A.SW', b: 'B.SW', x: -1.95, y: -0.05 }, { id: 'L2', a: 'B.NW', b: 'C.NW', x: -1.95, y: 3.25 }] },
+  // 6. Замок: C не крутится, пока не загорится лампочка 1. Сначала зажги её одну (B — на дорожку к −), потом собирай гирлянду.
+  { n: 6, name: 'Замок', hint: 'Замок откроется, когда загорится лампочка 1',
+    rings: [{ id: 'A', c: 0, r: 0, g: 4 }, { id: 'B', c: 0, r: 1, g: 0 }, { id: 'C', c: 0, r: 2, g: 2 }],
+    pads: [{ id: 't', tips: ['A.NE', 'B.SE', 'C.NE'] }],
+    bat: { p: 'A.SE', m: 't', x: 1.85, y: 2 }, lamps: [{ id: 'L1', a: 'A.SW', b: 'B.SW', x: -1.95, y: -0.05 }, { id: 'L2', a: 'B.NW', b: 'C.NW', x: -1.95, y: 3.25 }],
+    locks: [{ ring: 'C', lamp: 'L1' }] },
+  // 7. Развилка: пятачок в центре касается всех четырёх. D проворачивается мимо замыкания, только пока A не подаёт ток на развилку.
+  { n: 7, name: 'Развилка', hint: '',
+    rings: [{ id: 'A', c: 0, r: 0, g: 2 }, { id: 'B', c: 1, r: 0, g: 2 }, { id: 'C', c: 0, r: 1, g: 2 }, { id: 'D', c: 1, r: 1, g: 5 }],
+    pads: [{ id: 'x', tips: ['A.NE', 'B.NW', 'C.SE', 'D.SW'] }, { id: 'r', tips: ['D.SE', 'B.NE'] }],
+    bat: { p: 'A.SE', m: 'B.SE' }, lamps: [{ id: 'L1', a: 'C.NE', b: 'D.NE' }] },
+  // 8. Гирлянда: развилка и две лампочки. B в шаге от замыкания — короткая сторона закорачивает, крутить надо длинной.
+  { n: 8, name: 'Гирлянда', hint: '',
+    rings: [{ id: 'A', c: 0, r: 0, g: 3 }, { id: 'B', c: 1, r: 0, g: 5 }, { id: 'C', c: 0, r: 1, g: 3 }, { id: 'D', c: 1, r: 1, g: 4 }],
+    pads: [{ id: 'x', tips: ['A.NE', 'B.NW', 'C.SE', 'D.SW'] }, { id: 'u', tips: ['A.SE', 'B.SW'] }],
+    bat: { p: 'u', m: 'B.SE' }, lamps: [{ id: 'L1', a: 'C.NE', b: 'D.NE' }, { id: 'L2', a: 'D.SE', b: 'B.NE', x: 3.85, y: 1.0 }] },
+];
+
+// ---- геометрия ----
+function gNorm(g){ return ((g % CFG.POS) + CFG.POS) % CFG.POS; }
+function tipsOf(g){ g = gNorm(g); return [(g + 7) & 7, (g + 1) & 7]; }     // концы подковы: направления g−1 и g+1
+function dirVec(k){ const a = k * Math.PI / 4; return { x: Math.sin(a), y: Math.cos(a) }; }
+function ringCenter(r){ return { x: r.c * CFG.STEP, y: r.r * CFG.STEP }; }
+function tipPos(r, k){ const c = ringCenter(r), d = dirVec(k); return { x: c.x + CFG.R * d.x, y: c.y + CFG.R * d.y }; }
+function circDist(a, b){ const d = gNorm(b - a); return Math.min(d, CFG.POS - d); }
+
+// ---- сборка уровня в граф точек (кэш на уровень) ----
+const COMPILED = new WeakMap();
+function compile(L){
+  let C = COMPILED.get(L); if (C) return C;
+  const pts = [], key = new Map();
+  const ptAt = (x, y) => {
+    const k = Math.round(x / CFG.EPS) + ',' + Math.round(y / CFG.EPS);
+    if (key.has(k)) return key.get(k);
+    pts.push({ x, y, tips: [], pad: -1, node: null, pins: [] }); key.set(k, pts.length - 1); return pts.length - 1;
+  };
+  const rid = new Map(L.rings.map((r, i) => [r.id, i]));
+  const tipPt = L.rings.map((r, ri) => DIR.map((d, k) => { const p = tipPos(r, k), i = ptAt(p.x, p.y); pts[i].tips.push({ ri, k }); return i; }));
+  const nodeIx = new Map();
+  for (const nd of (L.nodes || [])){ const i = ptAt(nd.x, nd.y); pts[i].node = nd.id; nodeIx.set(nd.id, i); }
+  const padIx = new Map(), padPts = [];
+  (L.pads || []).forEach((pd, pi) => { padIx.set(pd.id, pi); padPts.push([]); });
+  const errs = [];
+  const tipRef = (ref) => {
+    const m = /^([A-Za-z0-9]+)\.(NE|NW|SE|SW|N|E|S|W)$/.exec(ref || '');
+    if (!m || !rid.has(m[1])) return -1;
+    return tipPt[rid.get(m[1])][DIR.indexOf(m[2])];
+  };
+  (L.pads || []).forEach((pd, pi) => {
+    for (const t of pd.tips){ const i = tipRef(t); if (i < 0){ errs.push('пятачок ' + pd.id + ': нет точки ' + t); continue; } padPts[pi].push(i); pts[i].pad = pi; }
+  });
+  const resolve = (ref, who) => {
+    if (padIx.has(ref)) return padPts[padIx.get(ref)][0];
+    if (nodeIx.has(ref)) return nodeIx.get(ref);
+    const i = tipRef(ref); if (i < 0) errs.push(who + ': нет точки ' + ref);
+    return i;
+  };
+  const base = new Int16Array(pts.length); for (let i = 0; i < pts.length; i++) base[i] = i;
+  const find0 = (p, i) => { while (p[i] !== i){ p[i] = p[p[i]]; i = p[i]; } return i; };
+  for (const pp of padPts) for (let k = 1; k < pp.length; k++){ const a = find0(base, pp[0]), b = find0(base, pp[k]); if (a !== b) base[a] = b; }
+  const P = resolve(L.bat.p, 'батарейка +'), M = resolve(L.bat.m, 'батарейка −');
+  if (P >= 0) pts[P].pins.push({ comp: 'bat', pin: 'p' }); if (M >= 0) pts[M].pins.push({ comp: 'bat', pin: 'm' });
+  const lamps = L.lamps.map((lp, li) => { const a = resolve(lp.a, 'лампочка ' + lp.id), b = resolve(lp.b, 'лампочка ' + lp.id);
+    if (a >= 0) pts[a].pins.push({ comp: li, pin: 'a' }); if (b >= 0) pts[b].pins.push({ comp: li, pin: 'b' }); return { a, b }; });
+  const lockLamp = L.rings.map(() => -1);
+  for (const lk of (L.locks || [])){ const ri = rid.get(lk.ring), li = L.lamps.findIndex(x => x.id === lk.lamp);
+    if (ri === undefined || li < 0) errs.push('замок ' + lk.ring + '/' + lk.lamp + ': нет подковы или лампочки'); else lockLamp[ri] = li; }
+  C = { L, pts, tipPt, padPts, base, P, M, lamps, lockLamp, errs, n: L.rings.length, par: new Int16Array(pts.length), rid };
+  COMPILED.set(L, C); return C;
+}
+function find(p, i){ while (p[i] !== i){ p[i] = p[p[i]]; i = p[i]; } return i; }
+function unite(p, a, b){ a = find(p, a); b = find(p, b); if (a !== b) p[a] = b; }
+
+// ---- цепь: короткое замыкание, шунт, какие лампочки горят ----
+// kind: 'short' (+ и − в одном узле), 'shunt' (под током лампочка закорочена), 'win' (горят все), 'open' (иначе; lit — что горит).
+function evalCircuit(C, g, out){
+  const p = C.par; p.set(C.base);
+  for (let ri = 0; ri < C.n; ri++){ const t = tipsOf(g[ri]); unite(p, C.tipPt[ri][t[0]], C.tipPt[ri][t[1]]); }
+  const r = out || {}; r.kind = 'open'; r.lit = 0; r.shunt = -1; r.live = null;
+  const P = find(p, C.P), M = find(p, C.M);
+  if (P === M){ r.kind = 'short'; return r; }
+  const nl = C.lamps.length, U = new Int16Array(nl), V = new Int16Array(nl);
+  for (let i = 0; i < nl; i++){ U[i] = find(p, C.lamps[i].a); V[i] = find(p, C.lamps[i].b); }
+  // все простые пути P → M по лампочкам (лампочек ≤ 4 — перебор мгновенный)
+  const live = new Set(), stack = [P];
+  const dfs = (node, used) => {
+    if (node === M){ r.lit |= used; for (const x of stack) live.add(x); return; }
+    for (let i = 0; i < nl; i++){
+      if (used & (1 << i) || U[i] === V[i]) continue;
+      const nx = U[i] === node ? V[i] : V[i] === node ? U[i] : -1;
+      if (nx < 0 || stack.includes(nx)) continue;
+      stack.push(nx); dfs(nx, used | (1 << i)); stack.pop();
+    }
+  };
+  dfs(P, 0);
+  for (let i = 0; i < nl; i++) if (U[i] === V[i] && live.has(U[i])){ r.kind = 'shunt'; r.shunt = i; return r; }
+  r.live = live;
+  if (r.lit === (1 << nl) - 1) r.kind = 'win';
+  return r;
+}
+function isFailKind(k){ return k === 'short' || k === 'shunt'; }
+
+// ---- состояние ----
+function createState(li, def){
+  const L = def || LEVELS[li], C = compile(L);
+  const s = { li, L, C, g: L.rings.map(r => gNorm(r.g || 0)), unl: 0, moves: 0, hist: [], ev: [], res: null };
+  s.res = evalCircuit(C, s.g); s.unl = unlockFrom(C, s.res, 0);
+  return s;
+}
+function unlockFrom(C, res, unl){ if (isFailKind(res.kind)) return unl; for (let ri = 0; ri < C.n; ri++){ const li = C.lockLamp[ri]; if (li >= 0 && (res.lit & (1 << li))) unl |= 1 << ri; } return unl; }
+function cloneState(s){ return { li: s.li, L: s.L, C: s.C, g: s.g.slice(), unl: s.unl, moves: s.moves, hist: s.hist.slice(), ev: [], res: s.res }; }
+function stateKey(s){ return s.g.join('') + '|' + s.unl; }
+function ringLocked(s, ri){ return s.C.lockLamp[ri] >= 0 && !(s.unl & (1 << ri)); }
+function isWin(s){ return s.res.kind === 'win'; }
+function isFail(s){ return isFailKind(s.res.kind); }
+function isLose(s){ return isFail(s); }
+
+// ---- ход ----
+function moveOf(ri, dir){ return ri * 2 + (dir > 0 ? 0 : 1); }
+function legalMoves(s){ if (isFail(s) || isWin(s)) return []; const out = []; for (let ri = 0; ri < s.C.n; ri++) if (!ringLocked(s, ri)) out.push(ri * 2, ri * 2 + 1); return out; }
+function applyMove(s, m){
+  const ri = m >> 1, dir = (m & 1) ? -1 : 1;
+  if (ri >= s.C.n || ringLocked(s, ri) || isFail(s)) return s;
+  const n = cloneState(s);
+  n.hist.push({ g: s.g.slice(), unl: s.unl, res: s.res });
+  n.g[ri] = gNorm(s.g[ri] + dir);
+  n.res = evalCircuit(n.C, n.g);
+  const was = n.unl; n.unl = unlockFrom(n.C, n.res, n.unl);
+  n.ev.push({ k: 'turn', ri, dir, g: n.g[ri] });
+  if (n.unl !== was) for (let k = 0; k < n.C.n; k++) if ((n.unl & ~was) & (1 << k)) n.ev.push({ k: 'unlock', ri: k });
+  n.ev.push({ k: n.res.kind, lit: n.res.lit, shunt: n.res.shunt });
+  n.moves++;
+  return n;
+}
+function undoMove(s){
+  if (!s.hist.length) return s;
+  const n = cloneState(s), h = n.hist.pop();
+  n.g = h.g.slice(); n.unl = h.unl; n.res = h.res; n.moves--;
+  return n;
+}
+function moveEvents(s, m){ const n = applyMove(s, m); return n === s ? [] : n.ev; }
+function previewMove(s, m){ const n = applyMove(s, m); return n === s ? null : n; }
+
+// ---- подробности цепи для рендера и причин: какие подковы, пятачки и точки под током / в замыкании ----
+// Граф точек: рёбра — жилы подков (по текущему g) и пятачки. Путь — поиск в ширину по точкам.
+function pointGraph(C, g){
+  const adj = C.pts.map(() => []);
+  for (let ri = 0; ri < C.n; ri++){ const t = tipsOf(g[ri]), a = C.tipPt[ri][t[0]], b = C.tipPt[ri][t[1]]; adj[a].push({ to: b, ri, from: a }); adj[b].push({ to: a, ri, from: b }); }
+  C.padPts.forEach((pp, pi) => { for (let i = 0; i < pp.length; i++) for (let k = 0; k < pp.length; k++) if (i !== k) adj[pp[i]].push({ to: pp[k], pad: pi }); });
+  return adj;
+}
+function wirePath(C, g, from, to){   // путь по жилам и пятачкам (без лампочек): [{ri|pad, from, to}] или null
+  const adj = pointGraph(C, g), prev = new Map([[from, null]]), q = [from];
+  for (let qi = 0; qi < q.length; qi++){ const u = q[qi]; if (u === to) break; for (const e of adj[u]) if (!prev.has(e.to)){ prev.set(e.to, { u, e }); q.push(e.to); } }
+  if (!prev.has(to)) return null;
+  const path = []; for (let at = to; prev.get(at); at = prev.get(at).u) path.push(prev.get(at).e); return path.reverse();
+}
+// Ток при победе (и частичном свечении): от + по жилам, через горящие лампочки, до −. Для каждой подковы — порядок (шаг от +),
+// для каждой жилы — с какого конца входит ток.
+function currentFlow(C, g, res){
+  const adj = pointGraph(C, g), dist = new Map([[C.P, 0]]), q = [C.P];
+  C.lamps.forEach((lp, li) => { if (res.lit & (1 << li)){ adj[lp.a].push({ to: lp.b, lamp: li, from: lp.a }); adj[lp.b].push({ to: lp.a, lamp: li, from: lp.b }); } });
+  for (let qi = 0; qi < q.length; qi++){ const u = q[qi]; for (const e of adj[u]){ if (!dist.has(e.to)){ dist.set(e.to, dist.get(u) + 1); q.push(e.to); } } }
+  const rings = {}, lamps = {};
+  for (let ri = 0; ri < C.n; ri++){ const t = tipsOf(g[ri]), a = C.tipPt[ri][t[0]], b = C.tipPt[ri][t[1]];
+    if (!dist.has(a)) continue;
+    const da = dist.get(a), db = dist.get(b); rings[ri] = { step: Math.min(da, db), fromTip: da <= db ? t[0] : t[1] }; }
+  C.lamps.forEach((lp, li) => { if (res.lit & (1 << li)) lamps[li] = { step: Math.min(dist.get(lp.a), dist.get(lp.b)) }; });
+  const maxStep = Math.max(1, ...Object.values(rings).map(x => x.step + 1), ...Object.values(lamps).map(x => x.step + 1));
+  return { rings, lamps, maxStep, dist };
+}
+// Что замкнуло: подковы и точки на пути замыкания (для почернения жил, искр и причины).
+function faultInfo(C, g, res){
+  if (res.kind === 'short'){ const path = wirePath(C, g, C.P, C.M); return { kind: 'short', path, rings: path ? [...new Set(path.filter(e => e.ri !== undefined).map(e => e.ri))] : [] }; }
+  if (res.kind === 'shunt'){ const lp = C.lamps[res.shunt], path = wirePath(C, g, lp.a, lp.b); return { kind: 'shunt', lamp: res.shunt, path, rings: path ? [...new Set(path.filter(e => e.ri !== undefined).map(e => e.ri))] : [] }; }
+  return null;
+}
+function listRu(ids){ return ids.length <= 1 ? ids.join('') : ids.slice(0, -1).join(', ') + ' и ' + ids[ids.length - 1]; }
+function lampName(L, li){ return L.lamps.length > 1 ? 'лампочку ' + (li + 1) : 'лампочку'; }
+function failReason(s){
+  if (!isFail(s)) return null;
+  const C = s.C, f = faultInfo(C, s.g, s.res), ids = f.rings.map(ri => s.L.rings[ri].id);
+  const by = ids.length ? (ids.length > 1 ? 'по подковам ' : 'по подкове ') + listRu(ids) : 'напрямую';
+  if (f.kind === 'short') return 'Короткое замыкание: плюс соединился с минусом ' + by + ' — в обход лампочки.';
+  return 'Ток обошёл ' + lampName(s.L, f.lamp) + ' ' + by + ': она закорочена.';
+}
+
+// ---- солвер: поиск в ширину по положениям подков; замыкание — тупик (дальше не идём) ----
+function solve(s){
+  if (isWin(s)) return [];
+  if (isFail(s)) return null;
+  const start = cloneState(s); start.hist = [];
+  const seen = new Map([[stateKey(start), null]]), q = [start];
+  for (let qi = 0; qi < q.length && seen.size < CFG.SOLVE_LIMIT; qi++){
+    const cur = q[qi], ck = stateKey(cur);
+    for (const m of legalMoves(cur)){
+      const nx = applyMove(cur, m); nx.hist = []; const k = stateKey(nx);
+      if (seen.has(k)) continue;
+      seen.set(k, { from: ck, move: m });
+      if (isWin(nx)){ const path = []; let at = k; while (seen.get(at)){ path.push(seen.get(at).move); at = seen.get(at).from; } return path.reverse(); }
+      if (!isFail(nx)) q.push(nx);
+    }
+  }
+  return null;
+}
+// Полный граф уровня: достижимые состояния; good — откуда победа ещё достижима без замыканий.
+const GRAPH = new WeakMap();
+function graphOf(L){
+  let G0 = GRAPH.get(L); if (G0) return G0;
+  const s = createState(-1, L), seen = new Map(), q = [s]; seen.set(stateKey(s), { win: isWin(s), fail: isFail(s), next: [] });
+  for (let qi = 0; qi < q.length && seen.size < CFG.SOLVE_LIMIT; qi++){
+    const cur = q[qi], ck = stateKey(cur), node = seen.get(ck);
+    if (node.win || node.fail) continue;
+    for (const m of legalMoves(cur)){
+      const nx = applyMove(cur, m); nx.hist = []; const k = stateKey(nx);
+      node.next.push(k);
+      if (!seen.has(k)){ seen.set(k, { win: isWin(nx), fail: isFail(nx), next: [] }); q.push(nx); }
+    }
+  }
+  const prev = new Map(); for (const [k, v] of seen) for (const x of v.next){ if (!prev.has(x)) prev.set(x, []); prev.get(x).push(k); }
+  const good = new Set(), st = [];
+  for (const [k, v] of seen) if (v.win){ good.add(k); st.push(k); }
+  while (st.length){ const k = st.pop(); for (const p of (prev.get(k) || [])) if (!good.has(p) && !seen.get(p).fail){ good.add(p); st.push(p); } }
+  G0 = { seen, good }; GRAPH.set(L, G0); return G0;
+}
+function isDead(s){ if (isWin(s)) return false; if (isFail(s)) return true; const G0 = graphOf(s.L), k = stateKey(s); if (G0.seen.has(k)) return !G0.good.has(k); return solve(s) === null; }
+
+// Все положения подков (без замков): сколько побед, замыканий, шунтов.
+function census(L){
+  const C = compile(L), n = C.n, total = Math.pow(CFG.POS, n), g = new Array(n).fill(0), out = { total, win: 0, short: 0, shunt: 0, open: 0 }, r = {};
+  for (let x = 0; x < total; x++){ let y = x; for (let i = 0; i < n; i++){ g[i] = y % 8; y = (y - g[i]) / 8; } evalCircuit(C, g, r); out[r.kind]++; }
+  return out;
+}
+function analyze(li){
+  const s = typeof li === 'object' ? (li.g && li.C ? li : createState(-1, li)) : createState(li);
+  const G0 = graphOf(s.L), sol = solve(s);
+  const firstFail = legalMoves(s).filter(m => isFail(applyMove(s, m)));
+  const firstDead = legalMoves(s).filter(m => !G0.good.has(stateKey(applyMove(s, m))));
+  return { states: G0.seen.size, good: G0.good.size, par: sol ? sol.length : -1, sol, firstMoves: legalMoves(s).length, firstFail, firstDead, solvable: G0.good.has(stateKey(s)) };
+}
+
+// ---- проверка раскладки ----
+function layoutErrors(L){
+  const C = compile(L), out = C.errs.slice(), R = CFG.R, T = CFG.TUBE_R;
+  for (let i = 0; i < L.rings.length; i++) for (let k = i + 1; k < L.rings.length; k++){
+    const a = ringCenter(L.rings[i]), b = ringCenter(L.rings[k]), d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (d < 2 * R - 0.01) out.push('подковы ' + L.rings[i].id + ' и ' + L.rings[k].id + ' налезают (d=' + d.toFixed(2) + ')');
+    if (L.rings[i].id === L.rings[k].id) out.push('два раза подкова ' + L.rings[i].id);
+  }
+  for (const r of L.rings) if (!(r.g >= 0 && r.g < CFG.POS)) out.push('подкова ' + r.id + ': положение ' + r.g);
+  if (C.P === C.M) out.push('+ и − батарейки на одной клемме');
+  C.lamps.forEach((lp, li) => { if (lp.a === lp.b) out.push('лампочка ' + L.lamps[li].id + ': выводы на одной клемме'); });
+  for (const pd of (L.pads || [])) if (pd.tips.length < 2) out.push('пятачок ' + pd.id + ' касается одной точки — он ничего не соединяет');
+  const s = createState(-1, L);
+  if (isFail(s)) out.push('замыкание на старте');
+  if (isWin(s)) out.push('цепь замкнута на старте');
+  return out;
+}
+
+// ---- боты (PROTO-BASE §6) ----
+// Случайный — любой щелчок, пока не победа или замыкание.
+function randomRun(li, seed, def){
+  const rnd = mulberry32(seed); let s = createState(li, def);
+  for (let k = 0; k < CFG.RANDOM_MOVES && !isWin(s) && !isFail(s); k++){ const m = legalMoves(s); if (!m.length) break; s = applyMove(s, m[Math.floor(rnd() * m.length)]); }
+  return { win: isWin(s), fail: isFail(s), moves: s.moves };
+}
+// Тапальщик — только тапы (по часовой) по случайной подкове.
+function tapRun(li, seed, def){
+  const rnd = mulberry32(seed); let s = createState(li, def);
+  for (let k = 0; k < CFG.RANDOM_MOVES && !isWin(s) && !isFail(s); k++){ const m = legalMoves(s).filter(x => !(x & 1)); if (!m.length) break; s = applyMove(s, m[Math.floor(rnd() * m.length)]); }
+  return { win: isWin(s), fail: isFail(s), moves: s.moves };
+}
+// Жадный — «соединяет плюс с минусом кратчайшим путём»: лампочку считает просто проводом. Ищет положение подков с наименьшим
+// числом щелчков, где + и − связаны (через лампочки или напрямую — ему всё равно; при равенстве берёт победное),
+// и крутит подковы по очереди (A, B, …) кратчайшей стороной (при равенстве — по часовой). Замкнул — попался.
+function naiveTarget(C, g0, unl){
+  const n = C.n, total = Math.pow(CFG.POS, n), g = new Array(n).fill(0), p = C.par, r = {};
+  let best = null, bc = Infinity, bw = false;
+  for (let x = 0; x < total; x++){
+    let y = x, cost = 0, ok = true;
+    for (let i = 0; i < n; i++){ g[i] = y % 8; y = (y - g[i]) / 8; const d = circDist(g0[i], g[i]); if (d && C.lockLamp[i] >= 0 && !(unl & (1 << i))){ ok = false; break; } cost += d; }
+    if (!ok || cost > bc) continue;
+    p.set(C.base);
+    for (let ri = 0; ri < n; ri++){ const t = tipsOf(g[ri]); unite(p, C.tipPt[ri][t[0]], C.tipPt[ri][t[1]]); }
+    for (const lp of C.lamps) unite(p, lp.a, lp.b);
+    if (find(p, C.P) !== find(p, C.M)) continue;
+    const win = evalCircuit(C, g, r).kind === 'win';
+    if (cost < bc || (win && !bw)){ bc = cost; best = g.slice(); bw = win; }
+  }
+  return best;
+}
+function greedyRun(li, def){
+  let s = createState(li, def); const path = [];
+  for (let plan = 0; plan < 8 && !isWin(s) && !isFail(s); plan++){
+    const tgt = naiveTarget(s.C, s.g, s.unl); if (!tgt) return { win: false, moves: s.moves, path, stuck: true };
+    let moved = false;
+    for (let ri = 0; ri < s.C.n && !isWin(s) && !isFail(s); ri++){
+      if (ringLocked(s, ri)) continue;
+      while (s.g[ri] !== tgt[ri] && !isFail(s) && !isWin(s)){
+        const d = gNorm(tgt[ri] - s.g[ri]), m = moveOf(ri, d <= 4 ? 1 : -1);
+        s = applyMove(s, m); path.push(m); moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  return { win: isWin(s), fail: isFail(s), moves: s.moves, path, trappedAt: isFail(s) ? s.moves : -1, reason: isFail(s) ? failReason(s) : null };
+}
+/* КОНЕЦ ЯДРА */
+
+// ===========================================================================
+// Оболочка: экраны, ввод, 3D-сцена, ток и искры, звук, сейв, дебаг-хук.
+// Время абсолютное (§4): now() = performance.now() + T.off. Ядро считает ход сразу, рендер догоняет: щелчок крутится CLICK_MS,
+// потом показывается итог (ток бежит, лампочка разгорается — или искры и дым).
+// ===========================================================================
+const NAME = 'zamkni_tsep';
+const VIEW = {                 // визуальные параметры (ядро от них не зависит)
+  FOV: 30,                     // угол камеры по вертикали, градусы
+  TILT: 0.07,                  // камера чуть сверху: видна толщина подков (рад)
+  PAD: 0.55,                   // поля панели вокруг содержимого, мировые ед.
+  TOP_FRAC: 0.17,              // доля высоты кадра сверху под заголовок и подсказку
+  PANEL_Z: -0.42,              // лицевая плоскость панели
+  CORE_R: 0.055,               // медная жила внутри стекла
+  CAP_R: 0.085,                // медный наконечник на конце подковы
+  SCREW_D: 0.52,               // диаметр винта-крепления
+  CLAMP_D: 0.4,                // диаметр клеммы
+  LAMP_H: 0.95,                // высота патрона с нитью (модель)
+  BULB_R: 0.36,                // радиус колбы
+  BAT_L: 1.75,                 // длина батарейки
+  BAT_D: 0.5,                  // диаметр батарейки
+  LEAD_R: 0.035,               // толщина вывода (провода)
+  FLOW_HEAD: 0.18,             // яркий фронт тока, доля жилы
+  BURN_MS: 650,                // жила чернеет
+  WIN_BANNER_MS: 900,          // от «дзынь» до плашки «Горит!»
+  POOL_SPARKS: 160, POOL_SMOKE: 60, POOL_GLINTS: 60,
+  PICK_R: 1.45,                // попадание по подкове: до 1,45 радиуса от центра
+  TAP_PX: 10,                  // порог тап/драг
+  DPR_MAX: 2,
+  BG_TOP: '#3b4357', BG_BOTTOM: '#1d212c', GLASS_TINT: '#eef6ff', COPPER: '#d9773a', GLOW: '#ffd27a', FAULT: '#ff3b2f',
+  PLUS: '#e8333a', MINUS: '#2a3f6e', LAMP_CLAMP: '#3b3f47',
+};
+const T0 = performance.now();
+const T = { off: 0 };
+const now = () => performance.now() + T.off;
+function log(kind, name, info){          // журнал [game] — одна строка на событие (§11)
+  console.log('[game] ' + JSON.stringify({ t: +((now() - T0) / 1000).toFixed(3), kind, name, info: info === undefined ? '' : String(info) }));
+}
+const PERF = {};
+function mark(name){ PERF[name] = Math.round(performance.now() - T0); log('event', 'perf.' + name, PERF[name] + 'ms'); }
+mark('script');
+
+const SAVE_KEY = NAME + '.v1';
+function loadSave(){ try { return JSON.parse(localStorage.getItem(SAVE_KEY)) || {}; } catch (e) { return {}; } }
+function save(){ try { localStorage.setItem(SAVE_KEY, JSON.stringify(G.save)); } catch (e) {} }
+
+const G = {
+  s: null,              // состояние ядра (уже после хода)
+  shown: null,          // что показано: { res, g, flow, fault, t0 } — итог последнего хода, показывается после щелчка
+  pending: 0,           // когда показать итог текущего щелчка (now()), 0 — нечего
+  screen: 'menu',
+  save: Object.assign({ level: 0, muted: false, done: {} }, loadSave()),
+  press: null,          // палец на подкове: { ri, acc, drag, dir, clicks }
+  hint: null,           // { m, until } — превью первого хода решения
+  spinDemo: 0,
+  won: 0,               // когда показать плашку победы
+  timeScale: 1,
+  paused: false,
+  par: 0,
+};
+
+// --- звук: WebAudio-синтез без файлов, ленивый старт по первому жесту (§8) ---
+const Snd = {
+  ac: null, out: null, noise: null, hum: null,
+  init(){
+    if (this.ac) { if (this.ac.state === 'suspended') this.ac.resume(); return; }
+    try {
+      this.ac = new (window.AudioContext || window.webkitAudioContext)();
+      this.out = this.ac.createGain(); this.out.gain.value = 0.8; this.out.connect(this.ac.destination);
+      const len = this.ac.sampleRate, buf = this.ac.createBuffer(1, len, this.ac.sampleRate), d = buf.getChannelData(0), rnd = mulberry32(7);
+      for (let i = 0; i < len; i++) d[i] = rnd() * 2 - 1;
+      this.noise = buf;
+    } catch (e) { this.ac = null; }
+  },
+  ok(){ return this.ac && !G.save.muted; },
+  env(g, t, a, peak, dur){ g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); },
+  osc(type, f0, f1, t, dur, peak, a){
+    const o = this.ac.createOscillator(), g = this.ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    this.env(g, t, a || 0.005, peak, dur); o.connect(g).connect(this.out); o.start(t); o.stop(t + dur + 0.03);
+  },
+  noiseBurst(t, dur, peak, type, freq, q){
+    const s = this.ac.createBufferSource(), f = this.ac.createBiquadFilter(), g = this.ac.createGain();
+    s.buffer = this.noise; s.loop = true; s.loopStart = (t * 7.3) % 0.5; f.type = type; f.frequency.value = freq; f.Q.value = q || 0.7;
+    this.env(g, t, 0.003, peak, dur); s.connect(f).connect(g).connect(this.out); s.start(t, (t * 13.7) % 0.8); s.stop(t + dur + 0.05);
+    return { s, f, g };
+  },
+  ratchet(dir){ if (!this.ok()) return; const t = this.ac.currentTime;   // трещотка подковы: сухой тик, против часовой чуть ниже
+    this.noiseBurst(t, 0.016, 0.22, 'highpass', 3800); this.osc('square', dir > 0 ? 2500 : 2150, 1500, t, 0.018, 0.045); this.osc('triangle', dir > 0 ? 560 : 500, 380, t + 0.004, 0.035, 0.07); log('sound', 'ratchet'); },
+  contact(){ if (!this.ok()) return; const t = this.ac.currentTime;   // медь коснулась меди: короткий металлический «тинк»
+    this.osc('sine', 3200, 2900, t, 0.06, 0.05); this.osc('triangle', 1400, 1300, t, 0.05, 0.04); },
+  humOn(level){ if (!this.ok()) return; const t = this.ac.currentTime;    // гул тока: 50 и 100 Гц через фильтр, держится, пока горит
+    if (!this.hum){ const g = this.ac.createGain(), f = this.ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420; g.gain.value = 0.0001; f.connect(g).connect(this.out);
+      const o1 = this.ac.createOscillator(), o2 = this.ac.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 100; o2.type = 'sine'; o2.frequency.value = 50; o1.connect(f); o2.connect(f); o1.start(); o2.start();
+      this.hum = { g, o1, o2 }; }
+    this.hum.g.gain.cancelScheduledValues(t); this.hum.g.gain.setTargetAtTime(0.035 * (level || 1), t, 0.15); log('sound', 'hum.on'); },
+  humOff(){ if (!this.hum || !this.ac) return; const t = this.ac.currentTime; this.hum.g.gain.cancelScheduledValues(t); this.hum.g.gain.setTargetAtTime(0.0001, t, 0.08); },
+  ding(k){ if (!this.ok()) return; const t = this.ac.currentTime, f = 1318 * Math.pow(2, (k || 0) * 4 / 12);   // «дзынь» лампочки: колокольчик
+    [[1, 0.16, 1.6], [2.76, 0.05, 0.9], [5.4, 0.03, 0.5], [0.5, 0.06, 1.2]].forEach(([m, p, d]) => this.osc('sine', f * m, f * m, t, d, p, 0.003));
+    this.noiseBurst(t, 0.05, 0.05, 'highpass', 6000); log('sound', 'ding'); },
+  sparks(big){ if (!this.ok()) return; const t = this.ac.currentTime, rnd = mulberry32(Math.floor(t * 1000));   // треск искр: «бзз» и сухие щелчки
+    this.osc('sawtooth', 1900, 140, t, 0.22, 0.13); this.noiseBurst(t, 0.12, 0.3, 'bandpass', 2600, 1.2); this.osc('sine', 120, 50, t, 0.25, 0.2);
+    for (let k = 0; k < (big ? 26 : 14); k++){ const tt = t + 0.02 + rnd() * 0.75 * (k / 26 + 0.3); this.noiseBurst(tt, 0.008 + rnd() * 0.02, 0.12 + rnd() * 0.2, 'highpass', 2500 + rnd() * 4000); }
+    this.noiseBurst(t + 0.25, 0.9, 0.05, 'lowpass', 700); log('sound', 'sparks'); },
+  unlock(){ if (!this.ok()) return; const t = this.ac.currentTime; this.osc('square', 900, 600, t, 0.05, 0.05); this.osc('triangle', 1400, 1900, t + 0.06, 0.12, 0.08); log('sound', 'unlock'); },
+  deny(){ if (!this.ok()) return; const t = this.ac.currentTime; this.noiseBurst(t, 0.12, 0.16, 'bandpass', 2200, 2); this.osc('square', 150, 130, t, 0.07, 0.06); this.osc('square', 150, 120, t + 0.1, 0.08, 0.06); log('sound', 'deny'); },
+  win(){ if (!this.ok()) return; const t = this.ac.currentTime; [784, 988, 1175, 1568].forEach((f, i) => { this.osc('sine', f, f, t + i * 0.08, 0.7, 0.07, 0.003); this.osc('sine', f * 2.76, f * 2.76, t + i * 0.08, 0.3, 0.02); }); log('sound', 'win'); },
+  tick(){ if (!this.ok()) return; const t = this.ac.currentTime; this.osc('triangle', 900, 700, t, 0.04, 0.06); },
+};
+function buzz(ms){ try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+
+// --- DOM, экраны (§6, §9, §11) ---
+const $ = (id) => document.getElementById(id);
+function goto(screen){
+  G.screen = screen; log('screen', screen);
+  const ov = $('overlay'), card = $('card');
+  document.body.dataset.screen = screen;
+  if (screen === 'game'){ ov.classList.remove('show'); return; }
+  ov.classList.add('show');
+  if (screen === 'menu'){
+    const cur = Math.min(G.save.level, LEVELS.length - 1);
+    card.innerHTML = `<h1 class="logo">Замкни <i>цепь</i></h1><p>Поворачивай подковы на винтах.<br>Проведи ток от плюса через лампочку к минусу — и нигде не закороти.</p>
+      <button class="primary big" data-act="play">Играть · уровень ${cur + 1}</button>
+      <div class="levels">${LEVELS.map((L, i) => `<button class="lv${G.save.done[i] ? ' done' : ''}${i === cur ? ' cur' : ''}" data-act="lv" data-i="${i}">${i + 1}</button>`).join('')}</div>
+      <button data-act="help">Как играть</button>`;
+  }
+  if (screen === 'help') card.innerHTML = `<h2>Как играть</h2><ul class="rules">
+      <li><b>Крути подкову пальцем</b> — щелчками в любую сторону. <b>Тап</b> — щелчок по часовой.</li>
+      <li>В стекле — медная жила. Ток идёт по подкове от конца до конца и дальше — в то, чего коснулся конец: клемму, медный пятачок, соседнюю подкову.</li>
+      <li>Проведи ток от <b>+</b> батарейки через лампочку к <b>−</b>. Лампочек несколько — гореть должны все.</li>
+      <li><b>Короткое замыкание:</b> плюс соединился с минусом в обход лампочки — искры, дым. Отмена бесплатна.</li>
+      <li>Пока держишь палец на подкове — видно, куда она встанет и что замкнётся.</li></ul>
+      <button class="primary" data-act="menu">Понятно</button>`;
+}
+$('card').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  const act = b.dataset.act; Snd.init(); log('input', 'button', act); Snd.tick();
+  if (act === 'play') startLevel(Math.min(G.save.level, LEVELS.length - 1));
+  else if (act === 'lv') startLevel(+b.dataset.i);
+  else if (act === 'help') goto('help');
+  else goto('menu');
+});
+window.addEventListener('hashchange', () => routeHash());
+function routeHash(){
+  const h = location.hash.slice(1); if (!h) return false;
+  const m = /^(?:level|l)(\d+)$/.exec(h);
+  if (m){ startLevel(Math.max(0, Math.min(LEVELS.length - 1, +m[1] - 1))); return true; }
+  if (h === 'game'){ startLevel(Math.min(G.save.level, LEVELS.length - 1)); return true; }
+  if (h === 'win'){ startLevel(0); applyPath(solve(G.s) || [], true); return true; }               // эталон: решённый уровень 1
+  if (h === 'fail'){ startLevel(2); applyPath(greedyRun(2).path, true); return true; }             // эталон: замыкание на уровне 3
+  if (['menu', 'help'].includes(h)){ goto(h); return true; }
+  return false;
+}
+let toastUntil = 0;
+function toast(msg, ms){ const t = $('toast'); t.textContent = msg; t.classList.remove('hide'); toastUntil = now() + (ms || 1700); }
+function hud(){
+  const L = G.s ? G.s.L : LEVELS[0];
+  $('hud-level').textContent = (G.s ? G.s.li + 1 : 1) + ' · ' + L.name;
+  $('hud-moves').textContent = G.s ? 'щелчков ' + G.s.moves : '';
+  const busy = $('dead').classList.contains('show') || $('won').classList.contains('show');
+  $('hint').textContent = busy ? '' : (L.hint || '');
+  $('btn-mute').classList.toggle('off', !!G.save.muted);
+  $('btn-undo').disabled = !G.s || !G.s.hist.length;
+}
+function showDead(reason, kind){
+  $('dead-title').textContent = kind === 'shunt' ? 'Лампочка закорочена' : 'Короткое замыкание';
+  $('dead-text').textContent = ' ' + reason.replace(/^Короткое замыкание: (.)/, (m, c) => c.toUpperCase()); $('dead').classList.add('show'); $('btn-undo').classList.add('pulse');
+  log('event', 'fail', kind + ': ' + reason); buzz([40, 50, 30]); hud();
+}
+function hideBanners(){ $('dead').classList.remove('show'); $('won').classList.remove('show'); $('btn-undo').classList.remove('pulse'); }
+
+function startLevel(li){
+  G.s = createState(li); G.press = null; G.hint = null; G.pending = 0; G.won = 0;
+  hideBanners(); Snd.humOff();
+  G.shown = showState(G.s, now() - 10000);
+  const a = analyze(G.s); G.par = a.par;
+  log('event', 'level.start', 'level=' + (li + 1) + ' par=' + a.par + ' states=' + a.states);
+  if (R3) buildLevel(G.s.L);
+  goto('game'); hud();
+  if (li === 0 && !G.save.done[0]) setTimeout(() => { if (G.s && G.s.li === 0 && !G.s.moves) G.hint = { m: 0, until: now() + 4200 }; }, 900);
+}
+// Что показать для состояния: ток (если что-то горит) или повреждение. t0 — когда итог начал проигрываться.
+function showState(s, t0){
+  const res = s.res, out = { res, g: s.g.slice(), t0, flow: null, fault: null };
+  if (isFailKind(res.kind)) out.fault = faultInfo(s.C, s.g, res);
+  else if (res.lit) out.flow = currentFlow(s.C, s.g, res);
+  return out;
+}
+
+// ===========================================================================
+// 3D: рендерер, окружение, материалы. Процедурное — из именованных функций (§11), модели Tripo — файлами (assets/models).
+// ===========================================================================
+let R3 = null;
+const GLB = {};
+const MODEL_IDS = ['battery', 'lamp', 'screw', 'clamp', 'panel', 'lock'];
+
+const SH_VERT = `
+varying vec3 vW; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
+void main(){
+  vec4 w = modelMatrix * vec4(position, 1.0);
+  vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - w.xyz); vUv = uv;
+  gl_Position = projectionMatrix * viewMatrix * w;
+}`;
+// Стекло подковы: прозрачная основа, френель по краю, блик и полоса отражения; uSmoke — закопчённое после замыкания.
+const SH_GLASS = `
+uniform vec3 uTint; uniform vec3 uLight; uniform float uAlpha; uniform float uBack; uniform float uSmoke; uniform vec3 uGlow; uniform float uWarm;
+varying vec3 vW; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
+void main(){
+  vec3 N = normalize(vN); if (!gl_FrontFacing) N = -N;
+  float ndv = clamp(abs(dot(N, vV)), 0.0, 1.0), fr = pow(1.0 - ndv, 2.4);
+  vec3 L = normalize(uLight);
+  float sp = pow(max(dot(N, normalize(L + vV)), 0.0), 140.0) * 1.5;
+  vec3 Rf = reflect(-vV, N);
+  float strip = smoothstep(0.78, 0.9, Rf.y * 0.85 - Rf.x * 0.4);
+  float a = uAlpha + fr * 0.55 + sp + strip * 0.45;
+  vec3 c = mix(uTint, vec3(1.0), clamp(fr * 0.7 + sp + strip, 0.0, 1.0));
+  c = mix(c, uGlow, uWarm * 0.35 * (0.4 + fr));
+  c = mix(c, vec3(0.16, 0.14, 0.13), uSmoke * 0.75); a = mix(a, max(a, 0.55), uSmoke);
+  gl_FragColor = vec4(c, clamp(a, 0.0, 0.95) * (uBack > 0.5 ? 0.45 : 1.0));
+  #include <colorspace_fragment>
+}`;
+// Медная жила: uv.x — вдоль дуги (0 у конца g−1, 1 у конца g+1). Ток входит с конца uDir и бежит до uHead;
+// за фронтом — бегущие импульсы света. uBurn — почерневшая жила. uGhost: 1 — превью тока (пунктир), 2 — превью замыкания (красный).
+const SH_CORE = `
+uniform vec3 uCopper; uniform vec3 uGlow; uniform vec3 uFault; uniform vec3 uLight;
+uniform float uOn; uniform float uHead; uniform float uDir; uniform float uBurn; uniform float uTime; uniform float uGhost;
+varying vec3 vW; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
+void main(){
+  vec3 N = normalize(vN), L = normalize(uLight);
+  float ndv = clamp(dot(N, vV), 0.0, 1.0), lam = 0.45 + 0.55 * clamp(dot(N, L), 0.0, 1.0);
+  vec3 c = uCopper * lam * (0.7 + 0.5 * ndv) + vec3(1.0, 0.85, 0.7) * pow(max(dot(N, normalize(L + vV)), 0.0), 40.0) * 0.8;
+  float u = uDir > 0.0 ? vUv.x : 1.0 - vUv.x;
+  float lit = uOn * step(u, uHead);
+  float run = 0.5 + 0.5 * sin(u * 26.0 - uTime * 9.0);
+  c = mix(c, uGlow * (1.15 + 0.45 * run), lit * 0.9);
+  c += uGlow * uOn * smoothstep(0.12, 0.0, abs(u - uHead)) * step(uHead, 0.995) * 1.6;
+  if (uGhost > 0.5){
+    float d = fract(u * 7.0 - uTime * 2.2);
+    vec3 gc = uGhost > 1.5 ? uFault : uGlow;
+    float k = uGhost > 1.5 ? 0.55 + 0.35 * sin(uTime * 14.0) : step(0.45, d) * 0.8;
+    c = mix(c, gc * 1.3, k);
+  }
+  vec3 burnt = vec3(0.07, 0.055, 0.05) + vec3(0.9, 0.25, 0.05) * max(0.0, sin(u * 40.0 + uTime * 3.0)) * 0.25 * (1.0 - uBurn * 0.6);
+  c = mix(c, burnt, uBurn);
+  gl_FragColor = vec4(c, 1.0);
+  #include <colorspace_fragment>
+}`;
+// Колба лампочки: стекло, которое разгорается тёплым светом (uGlow 0..1); середина ярче.
+const SH_BULB = `
+uniform vec3 uTint; uniform vec3 uWarm; uniform vec3 uLight; uniform float uGlow; uniform float uTime;
+varying vec3 vW; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
+void main(){
+  vec3 N = normalize(vN); if (!gl_FrontFacing) N = -N;
+  float ndv = clamp(abs(dot(N, vV)), 0.0, 1.0), fr = pow(1.0 - ndv, 2.2);
+  float sp = pow(max(dot(N, normalize(normalize(uLight) + vV)), 0.0), 120.0) * 1.4;
+  float fl = 1.0 + 0.04 * sin(uTime * 23.0) + 0.03 * sin(uTime * 7.0);
+  vec3 c = mix(uTint, vec3(1.0), clamp(fr * 0.6 + sp, 0.0, 1.0));
+  c = mix(c, uWarm * (1.2 + 0.6 * ndv) * fl, uGlow * (0.55 + 0.45 * ndv));
+  float a = 0.1 + fr * 0.45 + sp + uGlow * (0.35 + 0.4 * ndv);
+  gl_FragColor = vec4(c, clamp(a, 0.0, 0.97));
+  #include <colorspace_fragment>
+}`;
+const SH_BG_VERT = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+// Фон: стена мастерской — вертикальный градиент, мягкое пятно света сверху, редкая сетка перфорации.
+const SH_BG = `
+uniform vec3 uTop; uniform vec3 uBot; varying vec2 vUv;
+void main(){
+  vec3 c = mix(uBot, uTop, smoothstep(0.0, 1.0, vUv.y));
+  float glow = 1.0 - smoothstep(0.0, 0.6, distance(vUv, vec2(0.5, 0.75)));
+  c += vec3(0.07, 0.065, 0.05) * glow;
+  vec2 g = fract(vUv * vec2(14.0, 28.0)) - 0.5; c -= vec3(0.035) * smoothstep(0.16, 0.12, length(g));
+  gl_FragColor = vec4(c, 1.0);
+  #include <colorspace_fragment>
+}`;
+const COLD = /[?&]cold=1/.test(location.search) ? '\n// cold ' + Date.now() + '\n' : '';
+function lin(hex){ return new THREE.Color(hex); }
+const LIGHT_DIR = new THREE.Vector3(-0.45, 0.8, 0.6);
+const STEP = Math.PI / 4;
+const ARC0 = 3 * Math.PI / 4;           // торус-дуга начинается здесь: при g = 0 разрыв смотрит вверх, uv.x = 0 у конца g−1
+
+// Текстуры, нарисованные кодом один раз (§11: именованные функции).
+const MISC_TEX = {};
+function radialTexture(kind){          // мягкие пятна: тень, ореол, свет лампы, копоть, искра превью
+  if (MISC_TEX[kind]) return MISC_TEX[kind];
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128; const x = cv.getContext('2d');
+  const rg = (stops) => { const g = x.createRadialGradient(64, 64, 2, 64, 64, 63); stops.forEach(([o, c]) => g.addColorStop(o, c)); x.fillStyle = g; x.fillRect(0, 0, 128, 128); };
+  if (kind === 'blob') rg([[0, 'rgba(10,12,25,0.55)'], [1, 'rgba(10,12,25,0)']]);
+  if (kind === 'halo') rg([[0, 'rgba(255,240,190,1)'], [0.25, 'rgba(255,214,120,0.75)'], [0.6, 'rgba(255,180,70,0.22)'], [1, 'rgba(255,170,60,0)']]);
+  if (kind === 'pool') rg([[0, 'rgba(255,220,140,0.55)'], [0.5, 'rgba(255,200,110,0.18)'], [1, 'rgba(255,190,100,0)']]);
+  if (kind === 'scorch') rg([[0, 'rgba(12,8,6,0.9)'], [0.45, 'rgba(30,18,10,0.55)'], [1, 'rgba(30,18,10,0)']]);
+  if (kind === 'ring'){ x.filter = 'blur(4px)'; x.strokeStyle = 'rgba(255,255,255,0.9)'; x.lineWidth = 12; x.beginPath(); x.arc(64, 64, 46, 0, Math.PI * 2); x.stroke(); }
+  if (kind === 'zap'){ x.translate(64, 64); x.scale(4.2, 4.2); x.translate(-12, -12); const p = new Path2D('M13 2L4 14h7l-1 8 9-12h-7z');
+    x.lineJoin = 'round'; x.lineWidth = 2.2; x.strokeStyle = '#7a0a0a'; x.fillStyle = '#ff3b2f'; x.fill(p); x.stroke(p); }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return (MISC_TEX[kind] = t);
+}
+// Значок на клемме или над лампочкой: круг с символом (+, −, номер лампочки). Форма дублирует цвет (§9).
+function badgeTexture(sym, bg, fg){
+  const k = 'badge' + sym + bg; if (MISC_TEX[k]) return MISC_TEX[k];
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128; const x = cv.getContext('2d');
+  x.fillStyle = bg; x.beginPath(); x.arc(64, 64, 56, 0, Math.PI * 2); x.fill(); x.lineWidth = 8; x.strokeStyle = 'rgba(255,255,255,0.95)'; x.stroke();
+  x.fillStyle = fg; x.strokeStyle = fg; x.lineCap = 'round'; x.lineWidth = 16;
+  if (sym === '+'){ x.beginPath(); x.moveTo(34, 64); x.lineTo(94, 64); x.moveTo(64, 34); x.lineTo(64, 94); x.stroke(); }
+  else if (sym === '-'){ x.beginPath(); x.moveTo(34, 64); x.lineTo(94, 64); x.stroke(); }
+  else { x.font = '900 76px Nunito, system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(sym, 64, 70); }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return (MISC_TEX[k] = t);
+}
+
+function initRenderer(){
+  const cv = $('gl');
+  const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: false, powerPreference: 'high-performance' });
+  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.NoToneMapping;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(VIEW.FOV, 1, 0.5, 80);
+  // окружение для бликов металла: градиентная сфера + светлые панели → PMREM (без внешних файлов)
+  const envScene = new THREE.Scene();
+  envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide,
+    vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'varying vec3 vP; void main(){ float h = normalize(vP).y; vec3 c = mix(vec3(0.18,0.2,0.26), vec3(1.0,0.97,0.92), smoothstep(-0.3, 0.9, h)); gl_FragColor = vec4(c, 1.0); }' })));
+  for (const [x, y, z, w, h] of [[-4, 5, 4, 5, 2], [5, 2, 3, 2, 4], [0, -3, 6, 6, 1]]){
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 3, 3), side: THREE.DoubleSide }));
+    p.position.set(x, y, z); p.lookAt(0, 0, 0); envScene.add(p);
+  }
+  const pmrem = new THREE.PMREMGenerator(renderer); scene.environment = pmrem.fromScene(envScene, 0.02).texture; pmrem.dispose();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x50586a, 1.1));
+  const dl = new THREE.DirectionalLight(0xffffff, 1.5); dl.position.copy(LIGHT_DIR).multiplyScalar(10); scene.add(dl);
+  const bg = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({ vertexShader: SH_BG_VERT, fragmentShader: SH_BG + COLD, depthWrite: false,
+    uniforms: { uTop: { value: lin(VIEW.BG_TOP) }, uBot: { value: lin(VIEW.BG_BOTTOM) } } }));
+  bg.position.z = -6; bg.renderOrder = -10; scene.add(bg);
+  const geo = {
+    glass: new THREE.TorusGeometry(CFG.R, CFG.TUBE_R, 20, 96, 1.5 * Math.PI),
+    core: new THREE.TorusGeometry(CFG.R, VIEW.CORE_R, 10, 120, 1.5 * Math.PI),
+    cap: new THREE.CylinderGeometry(CFG.TUBE_R * 0.92, CFG.TUBE_R * 0.92, 0.09, 20),
+    capTip: new THREE.SphereGeometry(VIEW.CAP_R, 16, 10),
+    spoke: new THREE.CylinderGeometry(0.035, 0.035, 1, 8),
+    hub: new THREE.CylinderGeometry(0.2, 0.2, 0.06, 28),
+    disk: new THREE.CircleGeometry(1, 28),
+    plane: new THREE.PlaneGeometry(1, 1),
+    sphere: new THREE.IcosahedronGeometry(1, 1),
+    bulb: bulbGeometry(),
+  };
+  const glassU = (back) => ({ uTint: { value: lin(VIEW.GLASS_TINT) }, uLight: { value: LIGHT_DIR }, uAlpha: { value: 0.06 }, uBack: { value: back ? 1 : 0 },
+    uSmoke: { value: 0 }, uGlow: { value: lin(VIEW.GLOW) }, uWarm: { value: 0 } });
+  const mat = {
+    glassU,
+    copper: new THREE.MeshStandardMaterial({ color: lin(VIEW.COPPER), metalness: 0.85, roughness: 0.3 }),
+    brass: new THREE.MeshStandardMaterial({ color: 0xd8a640, metalness: 0.85, roughness: 0.3 }),
+    pad: new THREE.MeshStandardMaterial({ color: 0xb8582a, metalness: 0.65, roughness: 0.45, polygonOffset: true, polygonOffsetFactor: -1 }),
+    ghostArc: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false }),
+    blob: new THREE.MeshBasicMaterial({ map: radialTexture('blob'), transparent: true, depthWrite: false }),
+    halo: new THREE.MeshBasicMaterial({ map: radialTexture('halo'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
+    pool: new THREE.MeshBasicMaterial({ map: radialTexture('pool'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
+    scorch: new THREE.MeshBasicMaterial({ map: radialTexture('scorch'), transparent: true, depthWrite: false }),
+    hintRing: new THREE.MeshBasicMaterial({ map: radialTexture('ring'), transparent: true, depthWrite: false, color: 0xfff3a0 }),
+    zap: new THREE.MeshBasicMaterial({ map: radialTexture('zap'), transparent: true, depthTest: false }),
+    spark: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
+    smoke: new THREE.MeshBasicMaterial({ color: 0x4a4a4e, transparent: true, opacity: 0.42, depthWrite: false }),
+    lead: { p: new THREE.MeshStandardMaterial({ color: 0xd8333a, roughness: 0.45 }), m: new THREE.MeshStandardMaterial({ color: 0x2b3550, roughness: 0.45 }),
+      a: new THREE.MeshStandardMaterial({ color: 0x8a8f9a, roughness: 0.45 }), b: new THREE.MeshStandardMaterial({ color: 0x8a8f9a, roughness: 0.45 }) },
+  };
+  const sparks = new THREE.InstancedMesh(geo.sphere, mat.spark, VIEW.POOL_SPARKS); sparks.renderOrder = 9; sparks.count = 0; sparks.frustumCulled = false;
+  sparks.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(VIEW.POOL_SPARKS * 3).fill(1), 3);
+  const smoke = new THREE.InstancedMesh(geo.sphere, mat.smoke, VIEW.POOL_SMOKE); smoke.renderOrder = 8; smoke.count = 0; smoke.frustumCulled = false;
+  const glints = new THREE.InstancedMesh(geo.sphere, mat.spark, VIEW.POOL_GLINTS); glints.renderOrder = 9; glints.count = 0; glints.frustumCulled = false;
+  glints.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(VIEW.POOL_GLINTS * 3).fill(1), 3);
+  scene.add(sparks, smoke, glints);
+  R3 = { renderer, scene, camera, bg, geo, mat, sparks, smoke, glints, parts: [], level: null, dpr: Math.min(window.devicePixelRatio || 1, VIEW.DPR_MAX), frames: [] };
+  mark('gl');
+}
+// Колба: груша вращения (лампа накаливания), низ — горлышко под патрон.
+function bulbGeometry(){
+  const pts = [], R = VIEW.BULB_R;
+  for (let i = 0; i <= 24; i++){ const t = i / 24, a = -Math.PI / 2 + t * Math.PI;   // сфера сверху
+    pts.push(new THREE.Vector2(Math.max(0.001, Math.cos(a) * R), R * 0.9 + Math.sin(a) * R)); }
+  pts.reverse();
+  const neck = [new THREE.Vector2(R * 0.98, R * 0.75), new THREE.Vector2(R * 0.78, R * 0.25), new THREE.Vector2(R * 0.52, 0.02), new THREE.Vector2(R * 0.5, 0)];
+  const all = pts.filter(p => p.y >= R * 0.8).concat(neck);
+  return new THREE.LatheGeometry(all.sort((a, b) => b.y - a.y), 32);
+}
+function coreMaterial(){
+  return new THREE.ShaderMaterial({ vertexShader: SH_VERT, fragmentShader: SH_CORE + COLD,
+    uniforms: { uCopper: { value: lin(VIEW.COPPER) }, uGlow: { value: lin(VIEW.GLOW) }, uFault: { value: lin(VIEW.FAULT) }, uLight: { value: LIGHT_DIR },
+      uOn: { value: 0 }, uHead: { value: 0 }, uDir: { value: 1 }, uBurn: { value: 0 }, uTime: { value: 0 }, uGhost: { value: 0 } } });
+}
+function glassMaterial(back){
+  return new THREE.ShaderMaterial({ vertexShader: SH_VERT, fragmentShader: SH_GLASS + COLD, uniforms: R3.mat.glassU(back), transparent: true, depthWrite: false, side: back ? THREE.BackSide : THREE.FrontSide });
+}
+function bulbMaterial(){
+  return new THREE.ShaderMaterial({ vertexShader: SH_VERT, fragmentShader: SH_BULB + COLD, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: { uTint: { value: lin('#f4f8ff') }, uWarm: { value: lin('#ffd98a') }, uLight: { value: LIGHT_DIR }, uGlow: { value: 0 }, uTime: { value: 0 } } });
+}
+
+// --- GLB-загрузчик (минимальный glTF 2.0: меши, PBR-материалы, текстуры, иерархия). Взят из «Клапанов». ---
+async function loadGLB(url){
+  const res = await fetch(url); if (!res.ok) throw new Error('нет файла ' + url);
+  const buf = await res.arrayBuffer(), dv = new DataView(buf);
+  if (dv.getUint32(0, true) !== 0x46546C67) throw new Error('не GLB: ' + url);
+  let off = 12, json = null, bin = null;
+  while (off < buf.byteLength){
+    const len = dv.getUint32(off, true), typ = dv.getUint32(off + 4, true); off += 8;
+    if (typ === 0x4E4F534A) json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, off, len)));
+    else if (typ === 0x004E4942) bin = buf.slice(off, off + len);
+    off += len;
+  }
+  const CT = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array }, NC = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
+  const acc = (i) => {
+    const a = json.accessors[i], bv = json.bufferViews[a.bufferView], Tt = CT[a.componentType], n = NC[a.type];
+    const start = (bv.byteOffset || 0) + (a.byteOffset || 0), stride = bv.byteStride;
+    if (!stride || stride === n * Tt.BYTES_PER_ELEMENT) return { arr: new Tt(bin, start, a.count * n), n };
+    const out = new Tt(a.count * n), src = new Tt(bin, bv.byteOffset || 0, ((bv.byteLength) / Tt.BYTES_PER_ELEMENT) | 0), st = stride / Tt.BYTES_PER_ELEMENT, o0 = (a.byteOffset || 0) / Tt.BYTES_PER_ELEMENT;
+    for (let k = 0; k < a.count; k++) for (let c = 0; c < n; c++) out[k * n + c] = src[o0 + k * st + c];
+    return { arr: out, n };
+  };
+  const texCache = {};
+  const tex = async (ti, srgb) => {
+    if (texCache[ti]) return texCache[ti];
+    const im = json.images[json.textures[ti].source], bv = json.bufferViews[im.bufferView];
+    const blob = new Blob([new Uint8Array(bin, bv.byteOffset || 0, bv.byteLength)], { type: im.mimeType || 'image/png' });
+    const bmp = await createImageBitmap(blob, { imageOrientation: 'none' });
+    const t = new THREE.CanvasTexture(bmp); t.flipY = false; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = 4;
+    return (texCache[ti] = t);
+  };
+  const mats = [];
+  for (const m of (json.materials || [{}])){
+    const pbr = m.pbrMetallicRoughness || {}, f = pbr.baseColorFactor || [1, 1, 1, 1];
+    const opt = { color: new THREE.Color(f[0], f[1], f[2]), roughness: pbr.roughnessFactor !== undefined ? pbr.roughnessFactor : 1, metalness: pbr.metallicFactor !== undefined ? pbr.metallicFactor : 1, envMapIntensity: 1.0 };
+    if (pbr.baseColorTexture) opt.map = await tex(pbr.baseColorTexture.index, true);
+    if (pbr.metallicRoughnessTexture){ const orm = await tex(pbr.metallicRoughnessTexture.index, false); opt.roughnessMap = orm; opt.metalnessMap = orm; }
+    if (m.normalTexture) opt.normalMap = await tex(m.normalTexture.index, false);
+    mats.push(new THREE.MeshStandardMaterial(opt));
+  }
+  const toFloat = (a) => { if (a.arr instanceof Float32Array) return a.arr; const d = a.arr instanceof Uint8Array ? 255 : a.arr instanceof Uint16Array ? 65535 : a.arr instanceof Int8Array ? 127 : a.arr instanceof Int16Array ? 32767 : 1; return Float32Array.from(a.arr, (x) => Math.max(-1, x / d)); };
+  const buildMesh = (mi) => {
+    const grp = new THREE.Group();
+    for (const pr of json.meshes[mi].primitives){
+      const geo = new THREE.BufferGeometry(), at_ = pr.attributes;
+      geo.setAttribute('position', new THREE.BufferAttribute(toFloat(acc(at_.POSITION)), 3));
+      if (at_.NORMAL) geo.setAttribute('normal', new THREE.BufferAttribute(toFloat(acc(at_.NORMAL)), 3));
+      if (at_.TEXCOORD_0) geo.setAttribute('uv', new THREE.BufferAttribute(toFloat(acc(at_.TEXCOORD_0)), 2));
+      if (pr.indices !== undefined){ const ix = acc(pr.indices); geo.setIndex(new THREE.BufferAttribute(ix.arr, 1)); }
+      if (!at_.NORMAL) geo.computeVertexNormals();
+      grp.add(new THREE.Mesh(geo, mats[pr.material || 0] || mats[0]));
+    }
+    return grp;
+  };
+  const objs = json.nodes.map((nd) => {
+    const o = nd.mesh !== undefined ? buildMesh(nd.mesh) : new THREE.Group();
+    if (nd.matrix) new THREE.Matrix4().fromArray(nd.matrix).decompose(o.position, o.quaternion, o.scale);
+    if (nd.translation) o.position.fromArray(nd.translation);
+    if (nd.rotation) o.quaternion.fromArray(nd.rotation);
+    if (nd.scale) o.scale.fromArray(nd.scale);
+    return o;
+  });
+  json.nodes.forEach((nd, i) => { for (const c of (nd.children || [])) objs[i].add(objs[c]); });
+  const sc = json.scenes[json.scene || 0], root = new THREE.Group();
+  for (const n of sc.nodes) root.add(objs[n]);
+  root.updateMatrixWorld(true);
+  return root;
+}
+// Подгонка модели: центр по всем осям в начало (или низ на y = 0 при bottom), габарит по оси axis = size.
+function fitModel(model, size, axis, bottom){
+  const bb = new THREE.Box3().setFromObject(model), c = new THREE.Vector3(), sz = new THREE.Vector3(); bb.getCenter(c); bb.getSize(sz);
+  const k = size / (axis ? sz[axis] : Math.max(sz.x, sz.y, sz.z) || 1);
+  const holder = new THREE.Group(), m = model.clone(true); m.position.set(-c.x, bottom ? -bb.min.y : -c.y, -c.z); holder.add(m); holder.scale.setScalar(k);
+  const out = new THREE.Group(); out.add(holder); out.userData.size = sz.clone().multiplyScalar(k); return out;
+}
+async function loadModels(){
+  let list = MODEL_IDS;
+  try { const r = await fetch('assets/models/manifest.json', { cache: 'no-cache' }); if (r.ok) list = (await r.json()).models || MODEL_IDS; } catch (e) {}
+  await Promise.all(list.map(async (id) => {
+    try { GLB[id] = await loadGLB('assets/models/' + id + '.glb'); log('event', 'glb.loaded', id); } catch (e) { log('event', 'glb.fail', id + ': ' + e.message); }
+  }));
+  mark('glb');
+}
+// Перекраска красного пластика модели клеммы: красное (r заметно больше g и b) → цвет роли, яркость сохраняется. Медь и латунь не трогаются.
+function tintRed(model, hex, key){
+  const tint = lin(hex);
+  model.traverse(o => { if (!o.isMesh) return; o.material = o.material.clone();
+    o.material.onBeforeCompile = (sh) => { sh.uniforms.uTint = { value: tint };
+      sh.fragmentShader = 'uniform vec3 uTint;\n' + sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n{ vec3 d = diffuseColor.rgb; float red = smoothstep(0.08, 0.25, d.r - max(d.g, d.b) * 1.15) * step(d.g, 0.45); float l = dot(d, vec3(0.6, 0.3, 0.1)); diffuseColor.rgb = mix(d, uTint * (0.5 + 1.6 * l), red); }'); };
+    o.material.customProgramCacheKey = () => 'tintRed'; });
+}
+
+// --- построители деталей: модель Tripo, иначе — кодом ---
+function makeScrew(){
+  if (GLB.screw){ const g = fitModel(GLB.screw, VIEW.SCREW_D, 'x'); return g; }
+  const g = new THREE.Group(), m = new THREE.Mesh(R3.geo.sphere, R3.mat.brass); m.scale.set(VIEW.SCREW_D / 2, VIEW.SCREW_D / 2, 0.12); g.add(m); return g;
+}
+function makeClamp(role){
+  const hex = role === 'p' ? VIEW.PLUS : role === 'm' ? VIEW.MINUS : VIEW.LAMP_CLAMP;
+  if (GLB.clamp){ const g = fitModel(GLB.clamp, VIEW.CLAMP_D, 'x'); if (role !== 'p') tintRed(g, hex); return g; }
+  const g = new THREE.Group(), m = new THREE.Mesh(new THREE.CylinderGeometry(VIEW.CLAMP_D / 2, VIEW.CLAMP_D / 2, 0.1, 24), new THREE.MeshStandardMaterial({ color: lin(hex), roughness: 0.4 }));
+  m.rotation.x = Math.PI / 2; m.userData.ownGeo = true; g.add(m);
+  const n = new THREE.Mesh(R3.geo.sphere, R3.mat.brass); n.scale.set(0.09, 0.09, 0.09); n.position.z = 0.1; g.add(n); return g;
+}
+function makeBattery(){
+  if (GLB.battery){ const g = fitModel(GLB.battery, VIEW.BAT_L, 'x'), sz = g.userData.size; g.children[0].scale.y *= VIEW.BAT_D / sz.y; g.children[0].scale.z *= VIEW.BAT_D / sz.z; return g; }
+  const g = new THREE.Group(), m = new THREE.Mesh(new THREE.CylinderGeometry(VIEW.BAT_D / 2, VIEW.BAT_D / 2, VIEW.BAT_L * 0.92, 24), new THREE.MeshStandardMaterial({ color: 0x19a37a, roughness: 0.35 }));
+  m.rotation.z = Math.PI / 2; m.userData.ownGeo = true; g.add(m); return g;
+}
+function makeLampBase(){
+  if (GLB.lamp) return fitModel(GLB.lamp, VIEW.LAMP_H, 'y', true);
+  const g = new THREE.Group(), b = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.38, 0.22, 24), new THREE.MeshStandardMaterial({ color: 0x7a3d1c, roughness: 0.5 }));
+  b.position.y = 0.11; b.userData.ownGeo = true; g.add(b);
+  const s = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.3, 20), R3.mat.brass); s.position.y = 0.37; s.userData.ownGeo = true; g.add(s); return g;
+}
+function makeLock(){
+  if (GLB.lock) return fitModel(GLB.lock, 0.42, 'y');
+  const g = new THREE.Group(), b = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.24, 0.12), R3.mat.brass); b.userData.ownGeo = true; g.add(b); return g;
+}
+function badge(sym, bg, fg, size){
+  const m = new THREE.Mesh(R3.geo.plane, new THREE.MeshBasicMaterial({ map: badgeTexture(sym, bg, fg || '#ffffff'), transparent: true, depthWrite: false }));
+  m.userData.ownMat = true; m.scale.setScalar(size || 0.3); m.renderOrder = 7; return m;
+}
+
+// --- раскладка: где стоят корпуса батарейки и лампочек (из уровня или по клеммам) ---
+function fieldBox(L, Cc){
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const r of L.rings){ const c = ringCenter(r), e = CFG.R + CFG.TUBE_R; x0 = Math.min(x0, c.x - e); x1 = Math.max(x1, c.x + e); y0 = Math.min(y0, c.y - e); y1 = Math.max(y1, c.y + e); }
+  for (const p of Cc.pts) if (p.node){ x0 = Math.min(x0, p.x - 0.3); x1 = Math.max(x1, p.x + 0.3); }
+  return { x0, x1, y0, y1 };
+}
+function placeComponents(L, Cc){
+  const fb = fieldBox(L, Cc), P = Cc.pts[Cc.P], M = Cc.pts[Cc.M];
+  const vert = Math.abs(P.y - M.y) > Math.abs(P.x - M.x);
+  const bat = { x: L.bat.x !== undefined ? L.bat.x : (P.x + M.x) / 2, y: L.bat.y !== undefined ? L.bat.y : fb.y0 - 0.62, plusRight: P.x >= M.x, vert, plusUp: P.y >= M.y };
+  bat.ang = vert ? (bat.plusUp ? Math.PI / 2 : -Math.PI / 2) : (bat.plusRight ? 0 : Math.PI);   // куда смотрит + (модель: + справа)
+  const lamps = L.lamps.map((lp, li) => {
+    const a = Cc.pts[Cc.lamps[li].a], b = Cc.pts[Cc.lamps[li].b], mx = (a.x + b.x) / 2;
+    return { x: lp.x !== undefined ? lp.x : mx, y: lp.y !== undefined ? lp.y : fb.y1 + 0.3, aLeft: a.x <= b.x };
+  });
+  return { fb, bat, lamps };
+}
+
+// --- сборка уровня ---
+function disposeLevel(){
+  const lv = R3.level; if (!lv) return;
+  R3.scene.remove(lv.root);
+  lv.root.traverse(o => { if (o.isMesh && o.userData.ownGeo) o.geometry.dispose(); if (o.isMesh && o.userData.ownMat) o.material.dispose(); });
+  R3.level = null;
+}
+function buildLevel(L, noWarm){
+  if (!R3) return;
+  disposeLevel();
+  const Cc = compile(L), PZ = VIEW.PANEL_Z;
+  const root = new THREE.Group(), lv = { L, Cc, root, rings: [], lamps: [], clamps: [], scorch: [], flashes: [] };
+  const own = (m) => { m.userData.ownMat = true; return m; };
+  const gs = G.s ? G.s.g : L.rings.map(r => r.g);
+  const lay = placeComponents(L, Cc); lv.lay = lay;
+  // подковы: стекло-дуга, медная жила, медные наконечники, спицы к винту, винт; поворотная часть — rot
+  L.rings.forEach((r, ri) => {
+    const c = ringCenter(r), g = new THREE.Group(); g.position.set(c.x, c.y, 0);
+    const rot = new THREE.Group(); g.add(rot);
+    const arc = new THREE.Group(); arc.rotation.z = ARC0; rot.add(arc);
+    const core = own(new THREE.Mesh(R3.geo.core, coreMaterial())); core.renderOrder = 1; arc.add(core);
+    const back = own(new THREE.Mesh(R3.geo.glass, glassMaterial(true))); back.renderOrder = 2; arc.add(back);
+    const front = own(new THREE.Mesh(R3.geo.glass, glassMaterial(false))); front.renderOrder = 3; arc.add(front);
+    for (const a of [0, 1.5 * Math.PI]){                 // медные наконечники открытых концов
+      const cap = new THREE.Mesh(R3.geo.cap, R3.mat.copper); cap.position.set(Math.cos(a) * CFG.R, Math.sin(a) * CFG.R, 0);
+      cap.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-Math.sin(a), Math.cos(a), 0)); arc.add(cap);
+      const tip = new THREE.Mesh(R3.geo.capTip, R3.mat.copper); tip.position.set(Math.cos(a) * CFG.R, Math.sin(a) * CFG.R, -0.06); arc.add(tip);
+    }
+    for (const a of [0.3 * Math.PI, 0.75 * Math.PI, 1.2 * Math.PI]){     // спицы от ступицы к дуге (без тока)
+      const sp = new THREE.Mesh(R3.geo.spoke, R3.mat.brass), len = CFG.R - CFG.TUBE_R - 0.12;
+      sp.scale.set(1, len, 1); sp.position.set(Math.cos(a) * (0.14 + len / 2), Math.sin(a) * (0.14 + len / 2), -0.05); sp.rotation.z = a - Math.PI / 2; arc.add(sp);
+    }
+    const hub = new THREE.Mesh(R3.geo.hub, R3.mat.brass); hub.rotation.x = Math.PI / 2; hub.position.z = -0.06; rot.add(hub);
+    const screw = makeScrew(); screw.position.z = 0.02; g.add(screw);
+    const shadow = new THREE.Mesh(R3.geo.disk, R3.mat.blob); shadow.scale.setScalar(1.25); shadow.position.set(0.06, -0.08, PZ + 0.012); g.add(shadow);
+    let lock = null, lockBadge = null;
+    if (Cc.lockLamp[ri] >= 0){ lock = makeLock(); lock.position.set(0, 0, 0.32); g.add(lock); lockBadge = badge(String(Cc.lockLamp[ri] + 1), '#ffb000', '#3a2400', 0.26); lockBadge.position.set(0.24, -0.22, 0.5); g.add(lockBadge); }
+    root.add(g);
+    lv.rings.push({ id: r.id, g, rot, arc, core, back, front, lock, lockBadge, lockOff: 0, cont: gs[ri], vis: gs[ri], anim: null, shake: 0 });
+  });
+  // пятачки и дорожки: медные кружки в точках касания и полосы между ними (по цепочке ближайших)
+  (L.pads || []).forEach((pd, pi) => {
+    const pts = Cc.padPts[pi].map(i => Cc.pts[i]), order = [pts[0]], left = pts.slice(1);
+    const cx = pts.reduce((a, p) => a + p.x, 0) / pts.length, cy = pts.reduce((a, p) => a + p.y, 0) / pts.length, rad = Math.max(...pts.map(p => Math.hypot(p.x - cx, p.y - cy)));
+    if (pts.length >= 3 && rad < 0.7){ const d = new THREE.Mesh(R3.geo.disk, R3.mat.pad); d.scale.setScalar(rad + CFG.PAD_R); d.position.set(cx, cy, PZ + 0.02); root.add(d); return; }
+    while (left.length){ const last = order[order.length - 1]; let bi = 0, bd = Infinity; left.forEach((p, i) => { const d = Math.hypot(p.x - last.x, p.y - last.y); if (d < bd){ bd = d; bi = i; } }); order.push(left.splice(bi, 1)[0]); }
+    for (const p of order){ const d = new THREE.Mesh(R3.geo.disk, R3.mat.pad); d.scale.setScalar(CFG.PAD_R + 0.04); d.position.set(p.x, p.y, PZ + 0.02); root.add(d); }
+    for (let i = 1; i < order.length; i++){ const a = order[i - 1], b = order[i], len = Math.hypot(b.x - a.x, b.y - a.y);
+      const s = new THREE.Mesh(R3.geo.plane, R3.mat.pad); s.scale.set(len, CFG.PAD_R * 1.3, 1); s.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, PZ + 0.02); s.rotation.z = Math.atan2(b.y - a.y, b.x - a.x); root.add(s); }
+  });
+  // клеммы: батарейка (+ красная, − синяя, со значками) и лампочки (тёмные); общая клемма — одна модель
+  const clampAt = new Map();
+  Cc.pts.forEach((p, i) => { if (!p.pins.length) return;
+    const role = p.pins.some(q => q.comp === 'bat' && q.pin === 'p') ? 'p' : p.pins.some(q => q.comp === 'bat' && q.pin === 'm') ? 'm' : 'l';
+    const cl = makeClamp(role); cl.position.set(p.x, p.y, PZ + 0.13); root.add(cl); clampAt.set(i, cl);
+    if (role !== 'l'){ const b = badge(role === 'p' ? '+' : '-', role === 'p' ? VIEW.PLUS : VIEW.MINUS), dx = p.x - lay.bat.x, dy = p.y - lay.bat.y, d = Math.hypot(dx, dy) || 1;
+      b.position.set(p.x + dx / d * 0.34 + 0.12, p.y + dy / d * 0.34 - 0.22, 0.3); b.scale.setScalar(0.3); root.add(b); }
+    lv.clamps.push({ i, role, cl });
+  });
+  // батарейка: лежит в двух скобах, + к своей клемме
+  { const B = lay.bat, bg = new THREE.Group(); bg.position.set(B.x, B.y, PZ + VIEW.BAT_D / 2 + 0.04);
+    const body = makeBattery(); body.rotation.z = B.ang; bg.add(body);
+    const sh = new THREE.Mesh(R3.geo.plane, R3.mat.blob); sh.scale.set(VIEW.BAT_L * 1.2, 0.7, 1); sh.rotation.z = B.ang; sh.position.set(0.05, -0.12, -VIEW.BAT_D / 2 + 0.01); bg.add(sh);
+    root.add(bg); lv.bat = bg;
+    const ex = Math.cos(B.ang) * VIEW.BAT_L / 2, ey = Math.sin(B.ang) * VIEW.BAT_L / 2;
+    const ends = { p: new THREE.Vector3(B.x + ex, B.y + ey, bg.position.z), m: new THREE.Vector3(B.x - ex, B.y - ey, bg.position.z) };
+    for (const pin of ['p', 'm']) root.add(leadMesh(ends[pin], pinPoint(L, Cc, L.bat[pin], pin === 'p' ? Cc.P : Cc.M, ends[pin]), R3.mat.lead[pin], 'bat'));
+  }
+  // лампочки: патрон с нитью (Tripo) на полочке, колба, ореол, свет на панели, номер
+  L.lamps.forEach((lp, li) => {
+    const Lp = lay.lamps[li], g = new THREE.Group(); g.position.set(Lp.x, Lp.y, PZ + 0.36);
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.06, 0.72), R3.mat.brass); shelf.userData.ownGeo = true; shelf.position.set(0, -0.03, 0); g.add(shelf);
+    const base = makeLampBase(); g.add(base);
+    const bulb = own(new THREE.Mesh(R3.geo.bulb, bulbMaterial())); bulb.position.y = VIEW.LAMP_H * 0.62; bulb.renderOrder = 6; g.add(bulb);
+    const halo = new THREE.Mesh(R3.geo.plane, R3.mat.halo.clone()); halo.userData.ownMat = true; halo.position.set(0, VIEW.LAMP_H * 0.62 + VIEW.BULB_R * 0.75, 0.45); halo.renderOrder = 8; halo.visible = false; g.add(halo);
+    const pool = new THREE.Mesh(R3.geo.plane, R3.mat.pool.clone()); pool.userData.ownMat = true; pool.position.set(0, VIEW.LAMP_H * 0.7, PZ - g.position.z + 0.03); pool.scale.setScalar(4.2); pool.visible = false; pool.renderOrder = 0; g.add(pool);
+    const sh = new THREE.Mesh(R3.geo.plane, R3.mat.blob); sh.scale.set(1.3, 0.8, 1); sh.position.set(0.06, 0.15, PZ - g.position.z + 0.012); g.add(sh);
+    let num = null; if (L.lamps.length > 1){ num = badge(String(li + 1), '#ffb000', '#3a2400', 0.3); num.position.set(0.52, VIEW.LAMP_H * 0.25, 0.35); g.add(num); }
+    root.add(g);
+    const term = (side) => new THREE.Vector3(Lp.x + side * 0.3, Lp.y + 0.02, g.position.z - 0.05);
+    const sa = Lp.aLeft ? -1 : 1;
+    root.add(leadMesh(term(sa), pinPoint(L, Cc, lp.a, Cc.lamps[li].a, term(sa)), R3.mat.lead.a, 'lamp'), leadMesh(term(-sa), pinPoint(L, Cc, lp.b, Cc.lamps[li].b, term(-sa)), R3.mat.lead.b, 'lamp'));
+    lv.lamps.push({ g, base, bulb, halo, pool, num, glow: 0, litT0: 0, lit: false });
+  });
+  // свободные узлы (клемма без подков) — уже клемма; тени винтов готовы. Призрак следующего положения, искра превью, ореол подсказки.
+  const ghostArc = new THREE.Mesh(R3.geo.glass, R3.mat.ghostArc); ghostArc.visible = false; ghostArc.renderOrder = 5; root.add(ghostArc);
+  const zap = new THREE.Mesh(R3.geo.plane, R3.mat.zap); zap.visible = false; zap.renderOrder = 10; zap.scale.setScalar(0.55); root.add(zap);
+  const hintRing = new THREE.Mesh(R3.geo.plane, R3.mat.hintRing); hintRing.visible = false; hintRing.renderOrder = 6; root.add(hintRing);
+  // панель электрика (Tripo) под всем
+  const ext = contentBox(lv); lv.box = ext;
+  Object.assign(lv, { ghostArc, zap, hintRing });
+  R3.scene.add(root); R3.level = lv;
+  frameCamera();
+  fitPanel();
+  syncView(now());
+  if (!noWarm) warmUp();
+  log('event', 'level.built', 'rings=' + L.rings.length + ' lamps=' + L.lamps.length + ' pads=' + (L.pads || []).length);
+}
+// Куда подходит провод: к клемме; если вывод на пятачке или дорожке — к ближайшей к корпусу точке пятачка.
+function pinPoint(L, Cc, ref, pi, from){
+  const pdi = (L.pads || []).findIndex(p => p.id === ref); if (pdi < 0) return Cc.pts[pi];
+  let best = Cc.pts[pi], bd = Infinity; for (const i of Cc.padPts[pdi]){ const p = Cc.pts[i], d = Math.hypot(p.x - from.x, p.y - from.y); if (d < bd){ bd = d; best = p; } } return best;
+}
+// Вывод (провод): от вывода корпуса к клемме — отходит вперёд, ложится на панель и идёт к клемме.
+function leadMesh(from, to, mat, kind){
+  const PZ = VIEW.PANEL_Z, z = PZ + 0.07, end = new THREE.Vector3(to.x, to.y, z);
+  const drop = new THREE.Vector3(from.x + (end.x - from.x) * 0.15, from.y + (kind === 'lamp' ? -0.18 : (end.y > from.y ? 0.15 : -0.15)), z + 0.04);
+  const mid = new THREE.Vector3((drop.x + end.x) / 2, (drop.y + end.y) / 2, z);
+  const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([from.clone(), drop, mid, end], false, 'centripetal'), 40, VIEW.LEAD_R, 8, false);
+  const m = new THREE.Mesh(geo, mat); m.userData.ownGeo = true; m.renderOrder = 0; return m;
+}
+function contentBox(lv){
+  const b = { ...lv.lay.fb };
+  b.y0 = Math.min(b.y0, lv.lay.bat.y - (lv.lay.bat.vert ? VIEW.BAT_L / 2 + 0.2 : VIEW.BAT_D / 2 + 0.4));
+  const bw = lv.lay.bat.vert ? VIEW.BAT_D / 2 + 0.2 : VIEW.BAT_L / 2 + 0.15, bh = lv.lay.bat.vert ? VIEW.BAT_L / 2 + 0.2 : VIEW.BAT_D / 2 + 0.4;
+  b.x0 = Math.min(b.x0, lv.lay.bat.x - bw); b.x1 = Math.max(b.x1, lv.lay.bat.x + bw); b.y1 = Math.max(b.y1, lv.lay.bat.y + bh);
+  for (const Lp of lv.lay.lamps){ b.y1 = Math.max(b.y1, Lp.y + VIEW.LAMP_H * 0.62 + VIEW.BULB_R * 2); b.x0 = Math.min(b.x0, Lp.x - 0.55); b.x1 = Math.max(b.x1, Lp.x + 0.55); b.y0 = Math.min(b.y0, Lp.y - 0.15); }
+  return b;
+}
+// Панель электрика (Tripo) во весь кадр: внешний край рамы чуть за краем экрана, видна внутренняя кромка рамы.
+// Пересобирается при смене размера кадра (fit → frameCamera → fitPanel).
+function fitPanel(){
+  const lv = R3 && R3.level; if (!lv) return;
+  if (lv.panel){ lv.root.remove(lv.panel); lv.panel.traverse(o => { if (o.isMesh && o.userData.ownGeo) o.geometry.dispose(); }); }
+  const cam = R3.camera, dz = cam.position.z - VIEW.PANEL_Z, t = Math.tan(THREE.MathUtils.degToRad(VIEW.FOV / 2));
+  const vh = 2 * t * dz, vw = vh * cam.aspect, w = vw * 1.1, h = vh * 1.06, cx = cam.position.x, cy = R3.camLook.y;
+  let g;
+  if (GLB.panel){ g = fitModel(GLB.panel, 1, 'y'); const sz = g.userData.size, hold = g.children[0];
+    hold.scale.set(hold.scale.x * w / sz.x, hold.scale.y * h / sz.y, hold.scale.z * 0.9 / sz.z); g.position.set(cx, cy, VIEW.PANEL_Z - 0.45 + 0.02); }
+  else { g = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.2), new THREE.MeshStandardMaterial({ color: 0x2f4f78, roughness: 0.85 })); g.userData.ownGeo = true; g.position.set(cx, cy, VIEW.PANEL_Z - 0.1); }
+  lv.root.add(g); lv.panel = g;
+}
+function frameCamera(){
+  if (!R3 || !R3.level) return;
+  const b0 = R3.level.box, cam = R3.camera, pad = VIEW.PAD + 0.2;
+  const w = b0.x1 - b0.x0 + 2 * pad, hc = b0.y1 - b0.y0 + 2 * pad, h = hc / (1 - VIEW.TOP_FRAC), cx = (b0.x0 + b0.x1) / 2;
+  const cy = (b0.y0 - pad) + h / 2;
+  const t = Math.tan(THREE.MathUtils.degToRad(VIEW.FOV / 2)), dist = Math.max(h / 2 / t, w / 2 / (t * cam.aspect)) + 0.5;
+  const hv = 2 * t * (dist - 0.5), cyy = hv > h ? cy + (hv - h) * 0.1 : cy;
+  cam.position.set(cx, cyy + Math.sin(VIEW.TILT) * dist, Math.cos(VIEW.TILT) * dist); cam.lookAt(cx, cyy, 0); cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+  R3.camLook = new THREE.Vector3(cx, cyy, 0);
+  const bgH = 2 * t * (dist + 6) * 1.2;
+  R3.bg.scale.set(bgH * Math.max(cam.aspect, 0.4) * 1.3, bgH, 1); R3.bg.position.set(cx, cyy, -6);
+}
+// Прогрев (lesson-threejs-first-draw-warmup): один раз нарисовать всё, что появится позже, потом вернуть как было.
+function warmUp(){
+  const lv = R3.level; if (!lv) return;
+  const show = [lv.ghostArc, lv.zap, lv.hintRing, ...lv.lamps.flatMap(Lm => [Lm.halo, Lm.pool])];
+  const was = show.map(o => o.visible);
+  show.forEach(o => { o.visible = true; });
+  R3.sparks.count = 1; R3.smoke.count = 1; R3.glints.count = 1;
+  R3.renderer.render(R3.scene, R3.camera);
+  show.forEach((o, i) => { o.visible = was[i]; });
+  R3.sparks.count = 0; R3.smoke.count = 0; R3.glints.count = 0;
+}
+
+// --- отображение: углы подков, ток, лампочки, повреждения ---
+function updateRings(tNow){
+  const lv = R3.level, ts = G.timeScale, P = G.press;
+  lv.rings.forEach((R, ri) => {
+    let base = R.cont;
+    if (R.anim){ const k = (tNow - R.anim.t0) / (R.anim.ms / ts); if (k >= 1) R.anim = null; else base = R.anim.from + (R.anim.to - R.anim.from) * (R.anim.back ? ease.back(Math.max(0, k)) : ease.out(Math.max(0, k))); }
+    let off = 0;
+    if (P && P.ri === ri && P.drag){ off = P.acc / STEP; off = Math.max(-0.62, Math.min(0.62, off)); }
+    if (R.shake){ const k = (tNow - R.shake) / (420 / ts); if (k >= 1) R.shake = 0; else off += 0.08 * Math.sin(k * Math.PI * 6) * (1 - k); }
+    if (G.spinDemo) off += (tNow - G.spinDemo) / 1000 * 1.6 * (ri % 2 ? -1 : 1);
+    R.vis = base + off;
+    R.rot.rotation.z = -R.vis * STEP;
+    if (R.lock){ const k = R.lockOff ? Math.min(1, (tNow - R.lockOff) / (520 / ts)) : 0;
+      R.lock.visible = R.lockBadge.visible = k < 1; R.lock.position.set(0.6 * k, 0.9 * k - 1.6 * k * k, 0.32 + 0.6 * k); R.lock.rotation.z = -2.4 * k; R.lockBadge.material.opacity = 1 - k; R.lockBadge.material.transparent = true; }
+  });
+}
+function syncView(tNow){
+  const lv = R3 && R3.level; if (!lv || !G.shown) return;
+  const time = tNow / 1000, ts = G.timeScale, S = G.shown;
+  updateRings(tNow);
+  const flowK = S.flow ? Math.max(0, (tNow - S.t0) / (CFG.FLOW_MS / ts)) * S.flow.maxStep : 0;
+  const burnK = S.fault ? Math.min(1, Math.max(0, (tNow - S.t0) / (VIEW.BURN_MS / ts))) : 0;
+  const faulty = S.fault ? new Set(S.fault.rings) : null;
+  lv.rings.forEach((R, ri) => {
+    const u = R.core.material.uniforms; u.uTime.value = time; u.uGhost.value = 0;
+    const f = S.flow && S.flow.rings[ri];
+    const live = f && S.g[ri] === (G.s ? G.s.g[ri] : S.g[ri]) && !R.anim;
+    if (live){ const tips = tipsOf(S.g[ri]); u.uOn.value = 1; u.uDir.value = f.fromTip === tips[0] ? 1 : -1; u.uHead.value = Math.max(0, Math.min(1, flowK - f.step)); }
+    else { u.uOn.value = 0; u.uHead.value = 0; }
+    const burn = faulty && faulty.has(ri) ? burnK : 0;
+    u.uBurn.value = burn; R.front.material.uniforms.uSmoke.value = burn * 0.8; R.back.material.uniforms.uSmoke.value = burn * 0.8;
+    R.front.material.uniforms.uWarm.value = live ? Math.min(1, u.uHead.value) : 0;
+  });
+  // лампочки: разгораются, когда ток до них дошёл
+  lv.lamps.forEach((Lm, li) => {
+    const lf = S.flow && S.flow.lamps[li];
+    let target = 0;
+    if (lf){ const k = flowK - lf.step; target = Math.max(0, Math.min(1, k)); if (k > 0 && !Lm.lit){ Lm.lit = true; Lm.litT0 = tNow; onLampLit(li); } }
+    else Lm.lit = false;
+    Lm.glow += (target - Lm.glow) * 0.25; if (Math.abs(target - Lm.glow) < 0.002) Lm.glow = target;
+    const gl = Lm.glow, fl = 1 + 0.05 * Math.sin(time * 23 + li) + 0.03 * Math.sin(time * 6.1);
+    Lm.bulb.material.uniforms.uGlow.value = gl; Lm.bulb.material.uniforms.uTime.value = time;
+    Lm.halo.visible = Lm.pool.visible = gl > 0.01; Lm.halo.scale.setScalar((0.8 + 0.95 * gl) * fl); Lm.halo.material.opacity = gl * 0.7;
+    Lm.pool.material.opacity = gl * 0.9;
+  });
+  // вспышки замыкания: два-три мигания за 300 мс, потом гаснут
+  lv.flashes = lv.flashes.filter(F => { const k = (tNow - F.t0) / (340 / ts); if (k >= 1){ lv.root.remove(F.m); F.m.material.dispose(); return false; }
+    const fl = (0.6 + 0.4 * Math.sin(k * 40 + F.seed * 9)) * (1 - k); F.m.scale.setScalar(0.4 + 1.6 * fl); F.m.material.opacity = fl; return true; });
+  applyPreview(time);
+}
+function onLampLit(li){
+  const lv = R3.level, Lm = lv.lamps[li];
+  Snd.ding(li); buzz(18); log('fx.start', 'lamp.lit', 'L' + (li + 1));
+  const p = new THREE.Vector3(Lm.g.position.x, Lm.g.position.y + VIEW.LAMP_H * 0.62 + VIEW.BULB_R, Lm.g.position.z + 0.3);
+  for (let i = 0; i < 16; i++){ const a = rndFx() * Math.PI * 2, sp = 0.6 + rndFx() * 1.2; spawn('glint', p, new THREE.Vector3(Math.cos(a) * sp, Math.sin(a) * sp + 0.6, 0.3), 900, 0.035 + rndFx() * 0.025, i % 3 ? '#ffe39a' : '#ffffff'); }
+}
+
+// Превью: пока палец на подкове — призрак её следующего положения и что замкнётся: ток по жилам (жёлтый пунктир) и лампочки,
+// или красные жилы и молния там, где закоротит. Подсказка показывает то же для первого хода решения.
+function previewNow(){
+  const P = G.press;
+  if (P && !G.pending && G.s && legalMoves(G.s).length) return { m: moveOf(P.ri, P.dir || 1), hint: false };
+  if (G.hint && now() < G.hint.until && !G.pending && !P) return { m: G.hint.m, hint: true };
+  return null;
+}
+function applyPreview(time){
+  const lv = R3.level, L = lv.L;
+  lv.ghostArc.visible = false; lv.zap.visible = false; lv.hintRing.visible = false;
+  const pm = previewNow(); if (!pm || !G.s) return;
+  const ri = pm.m >> 1, dir = (pm.m & 1) ? -1 : 1, r = L.rings[ri], c = ringCenter(r);
+  if (ringLocked(G.s, ri)) return;
+  const R = lv.rings[ri], pulse = 1 + 0.08 * Math.sin(time * 9);
+  lv.ghostArc.visible = true; lv.ghostArc.position.set(c.x, c.y, 0.03); lv.ghostArc.rotation.z = ARC0 - (R.cont + dir) * STEP;
+  if (pm.hint){ lv.hintRing.visible = true; lv.hintRing.position.set(c.x, c.y, 0.3); lv.hintRing.scale.setScalar(2.9 * pulse); }
+  const n = previewMoveState(G.s, pm.m); if (!n) return;
+  if (isFail(n)){
+    const f = faultInfo(n.C, n.g, n.res);
+    for (const k of f.rings) lv.rings[k].core.material.uniforms.uGhost.value = 2;
+    const pt = faultPoint(n, f, ri); lv.zap.visible = true; lv.zap.position.set(pt.x, pt.y, 0.5); lv.zap.scale.setScalar(0.55 * pulse);
+  } else if (n.res.lit){
+    const fl = currentFlow(n.C, n.g, n.res);
+    for (const k of Object.keys(fl.rings)) if (+k !== ri || true) lv.rings[+k].core.material.uniforms.uGhost.value = 1;
+    for (const li of Object.keys(fl.lamps)){ const Lm = lv.lamps[+li]; if (Lm.glow < 0.5){ Lm.halo.visible = true; Lm.halo.scale.setScalar(1.0 * pulse); Lm.halo.material.opacity = 0.35; } }
+  }
+}
+function previewMoveState(s, m){ const n = applyMove(s, m); return n === s ? null : n; }
+// Где искрит: точка касания на пути замыкания, ближайшая к повёрнутой подкове (её конец), иначе — клемма +.
+function faultPoint(s, f, ri){
+  const C2 = s.C; let best = null, bd = Infinity;
+  const c = ri >= 0 ? ringCenter(s.L.rings[ri]) : null;
+  for (const e of (f.path || [])){ for (const pi of [e.from, e.to]){ if (pi === undefined) continue; const p = C2.pts[pi]; const d = c ? Math.hypot(p.x - c.x, p.y - c.y) : 0; if (d < bd){ bd = d; best = p; } } }
+  return best || C2.pts[C2.P];
+}
+
+// --- ход: щелчок подковы → ядро сразу, итог показывается после анимации щелчка ---
+function turnRing(ri, dir, how){
+  if (!G.s || G.screen !== 'game') return false;
+  const lv = R3 && R3.level, m = moveOf(ri, dir);
+  if (ri >= G.s.C.n) return false;
+  log('input', 'turn', 'ring=' + G.s.L.rings[ri].id + ' dir=' + dir + ' how=' + how);
+  if (isFail(G.s)){ Snd.deny(); buzz(15); toast('Сначала отмени ход — тут замыкание'); return false; }
+  if (isWin(G.s)){ return false; }
+  if (ringLocked(G.s, ri)){ Snd.deny(); buzz(15); toast('Подкова ' + G.s.L.rings[ri].id + ' на замке: зажги лампочку ' + (G.s.C.lockLamp[ri] + 1)); if (lv) lv.rings[ri].shake = now(); return false; }
+  hideBanners(); Snd.humOff();
+  const before = G.s; G.s = applyMove(G.s, m); G.hint = null;
+  if (lv){ const R = lv.rings[ri]; const from = R.vis; R.cont += dir; if (how !== 'drag') R.anim = { from, to: R.cont, t0: now(), ms: CFG.CLICK_MS, back: true }; else { R.anim = { from: R.vis, to: R.cont, t0: now(), ms: 90, back: false }; if (G.press) G.press.acc = 0; } }
+  Snd.ratchet(dir); buzz(6);
+  G.shown = { res: { kind: 'open', lit: 0 }, g: before.g.slice(), t0: now(), flow: null, fault: null };   // пока щёлкает — цепь разомкнута
+  G.pending = now() + (how === 'drag' ? 90 : CFG.CLICK_MS) / G.timeScale;
+  hud();
+  return true;
+}
+// Итог щелчка: ток, лампочки, замыкание, замок.
+function resolvePending(){
+  G.pending = 0;
+  const s = G.s, ev = s.ev || [];
+  G.shown = showState(s, now());
+  const touches = s.res.kind !== 'open' || s.res.lit;
+  if (touches) Snd.contact();
+  for (const e of ev) if (e.k === 'unlock'){ const R = R3 && R3.level && R3.level.rings[e.ri]; if (R) R.lockOff = now(); Snd.unlock(); toast('Замок открыт: подкова ' + s.L.rings[e.ri].id + ' крутится'); log('event', 'unlock', s.L.rings[e.ri].id); }
+  if (isFail(s)){
+    const reason = failReason(s); Snd.sparks(true); burst(s); showDead(reason, s.res.kind);
+  } else if (s.res.lit){
+    Snd.humOn(isWin(s) ? 1 : 0.6); log('fx.start', 'flow', 'lit=' + s.res.lit + ' kind=' + s.res.kind);
+    if (isWin(s)){
+      G.won = now() + (CFG.FLOW_MS + VIEW.WIN_BANNER_MS) / G.timeScale;
+      log('event', 'level.win', 'moves=' + s.moves + ' par=' + G.par);
+      G.save.done[s.li] = true; G.save.level = Math.max(G.save.level, Math.min(s.li + 1, LEVELS.length - 1)); save();
+    }
+  } else if (isDead(s)) toast('Отсюда не выйти — отмени ход');
+  hud();
+}
+function showWon(){
+  G.won = 0; const s = G.s, clean = s.moves <= G.par, last = s.li >= LEVELS.length - 1;
+  $('won-text').textContent = ' Щелчков ' + s.moves + (clean ? ' — как у машины' : ' · можно за ' + G.par) + (last ? '. Это последний уровень.' : '');
+  $('won-next').textContent = last ? 'В меню' : 'Дальше';
+  $('won').classList.add('show'); Snd.win(); log('screen', 'won'); hud();
+}
+// Искры, дым и копоть в точках замыкания; жилы на пути чернеют (uBurn в syncView).
+function burst(s){
+  const lv = R3 && R3.level; if (!lv) return;
+  const f = faultInfo(s.C, s.g, s.res), pts = new Map();
+  for (const e of (f.path || [])) for (const pi of [e.from, e.to]) if (pi !== undefined) pts.set(pi, s.C.pts[pi]);
+  if (!pts.size) pts.set(s.C.P, s.C.pts[s.C.P]);
+  log('fx.start', 'sparks', 'points=' + pts.size + ' rings=' + f.rings.map(k => s.L.rings[k].id).join(''));
+  for (const p of pts.values()){
+    const at = new THREE.Vector3(p.x, p.y, 0.1);
+    for (let i = 0; i < 26; i++){ const a = rndFx() * Math.PI * 2, sp = 1.8 + rndFx() * 3.6; spawn('spark', at, new THREE.Vector3(Math.cos(a) * sp, Math.sin(a) * sp + 1.2, 0.6 + rndFx() * 1.5), 300 + rndFx() * 450, 0.04 + rndFx() * 0.035, rndFx() < 0.5 ? '#fff6c0' : '#ffb13b'); }
+    const fl = new THREE.Mesh(R3.geo.plane, R3.mat.halo.clone()); fl.userData.ownMat = true; fl.material.color = lin('#ffe9b0'); fl.position.set(p.x, p.y, 0.6); fl.renderOrder = 9; fl.scale.setScalar(0.01);
+    lv.root.add(fl); lv.flashes.push({ m: fl, t0: now(), seed: rndFx() });
+    for (let i = 0; i < 4; i++) spawn('smoke', new THREE.Vector3(p.x + (rndFx() - 0.5) * 0.2, p.y, 0.25), new THREE.Vector3((rndFx() - 0.5) * 0.25, 0.5 + rndFx() * 0.35, 0.1), 1500 + rndFx() * 800, 0.12 + rndFx() * 0.08);
+    const sc = new THREE.Mesh(R3.geo.plane, R3.mat.scorch); sc.scale.setScalar(0.75); sc.position.set(p.x, p.y, VIEW.PANEL_Z + 0.03); sc.renderOrder = 1; lv.root.add(sc); lv.scorch.push(sc);
+  }
+  for (const k of f.rings){ const c = ringCenter(s.L.rings[k]); for (let i = 0; i < 3; i++) spawn('smoke', new THREE.Vector3(c.x + (rndFx() - 0.5) * 1.4, c.y + (rndFx() - 0.5) * 1.4, 0.2), new THREE.Vector3(0, 0.45 + rndFx() * 0.3, 0.1), 1800 + rndFx() * 900, 0.14 + rndFx() * 0.1); }
+  R3.level.rings.forEach(R => { if (f.rings.includes(lv.rings.indexOf(R))) R.shake = now(); });
+}
+function undo(){
+  if (!G.s || !G.s.hist.length) return;
+  if (G.pending) resolvePending();
+  const was = G.s; G.s = undoMove(G.s); hideBanners(); Snd.humOff(); G.won = 0; log('input', 'undo', 'moves=' + G.s.moves);
+  Snd.tick();
+  const lv = R3 && R3.level;
+  if (lv){
+    lv.rings.forEach((R, ri) => { const d = gNorm(G.s.g[ri] - was.g[ri]); if (d){ const dir = d === 1 ? 1 : -1, from = R.vis; R.cont += dir; R.anim = { from, to: R.cont, t0: now(), ms: CFG.CLICK_MS, back: false }; }
+      if (R.lock && !(G.s.unl & (1 << ri))) R.lockOff = 0; });
+    lv.scorch.forEach(m => lv.root.remove(m)); lv.scorch = [];
+    lv.lamps.forEach(Lm => { Lm.lit = false; });
+  }
+  G.shown = showState(G.s, now() - 10000);
+  if (G.s.res.lit) Snd.humOn(0.6);
+  hud();
+}
+function showHint(m, ms){
+  if (m === undefined){ const sol = G.s && solve(G.s); if (!sol){ toast(isFail(G.s) ? 'Сначала отмени ход' : 'Отсюда не выйти — отмени ход'); return; } if (!sol.length) return; m = sol[0]; }
+  G.hint = { m, until: now() + (ms || 2800) }; log('event', 'hint', 'ring=' + G.s.L.rings[m >> 1].id + ' dir=' + ((m & 1) ? 'ccw' : 'cw'));
+  toast(((m & 1) ? 'Против часовой' : 'По часовой') + ': подкова ' + G.s.L.rings[m >> 1].id, 1900);
+}
+// Прогнать ходы сразу (эталонные экраны #win/#fail и дебаг).
+function applyPath(path, instant){
+  for (const m of path){ G.s = applyMove(G.s, m); if (isFail(G.s) || isWin(G.s)) break; }
+  const lv = R3 && R3.level; if (lv) lv.rings.forEach((R, ri) => { R.cont = R.vis = G.s.g[ri]; R.anim = null; });
+  resolvePending(); if (instant){ G.shown.t0 = now() - 5000; if (G.won) G.won = now() + 50; }
+}
+
+// --- частицы (позиции — функция от абсолютного времени) ---
+function spawn(kind, p, v, life, size, color){
+  R3.parts.push({ kind, p: p.clone(), v: v.clone(), t0: now(), life: life / G.timeScale, size, color: color ? lin(color) : null });
+  if (R3.parts.length > VIEW.POOL_SPARKS + VIEW.POOL_SMOKE + VIEW.POOL_GLINTS) R3.parts.shift();
+}
+const rndFx = mulberry32(99);
+const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _white = new THREE.Color(1, 1, 1);
+function updateParts(tNow){
+  let ns = 0, nm = 0, ng = 0;
+  R3.parts = R3.parts.filter(q => tNow - q.t0 < q.life);
+  for (const q of R3.parts){
+    const t = (tNow - q.t0) / 1000 * G.timeScale, k = (tNow - q.t0) / q.life;
+    if (q.kind === 'smoke'){
+      if (nm >= VIEW.POOL_SMOKE) continue;
+      _p.set(q.p.x + q.v.x * t + Math.sin(t * 2 + q.p.x * 5) * 0.06, q.p.y + q.v.y * t, q.p.z + q.v.z * t);
+      _s.setScalar(q.size * (0.6 + 2.2 * k) * (k > 0.8 ? (1 - k) * 5 : 1)); _m.compose(_p, _q, _s); R3.smoke.setMatrixAt(nm++, _m);
+    } else {
+      const g = q.kind === 'spark' ? -7.0 : -1.2, pool = q.kind === 'spark' ? R3.sparks : R3.glints, n = q.kind === 'spark' ? ns : ng;
+      if (n >= (q.kind === 'spark' ? VIEW.POOL_SPARKS : VIEW.POOL_GLINTS)) continue;
+      _p.set(q.p.x + q.v.x * t, q.p.y + q.v.y * t + 0.5 * g * t * t, q.p.z + q.v.z * t);
+      _s.setScalar(q.size * (1 - k * 0.7)); _m.compose(_p, _q, _s); pool.setMatrixAt(n, _m); pool.setColorAt(n, q.color || _white);
+      if (q.kind === 'spark') ns++; else ng++;
+    }
+  }
+  R3.sparks.count = ns; R3.smoke.count = nm; R3.glints.count = ng;
+  for (const pm of [R3.sparks, R3.smoke, R3.glints]){ pm.instanceMatrix.needsUpdate = true; if (pm.instanceColor) pm.instanceColor.needsUpdate = true; }
+}
+const ease = { out: (x) => 1 - Math.pow(1 - x, 3), inOut: (x) => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2, back: (x) => { const c = 1.7; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); } };
+
+// --- ввод: Pointer Events. Палец на подкове: драг крутит её за пальцем, щелчок — на полпути до соседнего положения;
+// тап (сдвиг меньше 10 px, ни одного щелчка) — один щелчок по часовой. pointercancel = отпускание без тапа (§3). ---
+const cv = $('gl');
+function ringScreen(ri){
+  const c0 = ringCenter(G.s.L.rings[ri]), rect = cv.getBoundingClientRect();
+  const c = new THREE.Vector3(c0.x, c0.y, 0).project(R3.camera), e = new THREE.Vector3(c0.x + CFG.R, c0.y, 0).project(R3.camera);
+  const x = (c.x + 1) / 2 * rect.width, y = (1 - c.y) / 2 * rect.height, ex = (e.x + 1) / 2 * rect.width;
+  return { x, y, rpx: Math.abs(ex - x) };
+}
+function pickRing(cx, cy){
+  if (!R3 || !R3.level || !G.s) return -1;
+  const rect = cv.getBoundingClientRect(), x = cx - rect.left, y = cy - rect.top; let best = -1, bd = Infinity;
+  G.s.L.rings.forEach((r, ri) => { const s = ringScreen(ri), d = Math.hypot(s.x - x, s.y - y) / s.rpx; if (d < VIEW.PICK_R && d < bd){ bd = d; best = ri; } });
+  return best;
+}
+function pointerAngle(P, e){ const rect = cv.getBoundingClientRect(); return Math.atan2(e.clientY - rect.top - P.cy, e.clientX - rect.left - P.cx); }
+cv.addEventListener('pointerdown', (e) => {
+  Snd.init(); if (G.screen !== 'game' || !G.s || G.press) return;
+  const ri = pickRing(e.clientX, e.clientY);
+  if (ri < 0){ log('input', 'miss'); return; }
+  if (isFail(G.s)){ log('input', 'press', 'fail'); Snd.deny(); toast('Сначала отмени ход — тут замыкание'); return; }
+  if (isWin(G.s)) return;
+  if (ringLocked(G.s, ri)){ log('input', 'press', 'ring=' + G.s.L.rings[ri].id + ' locked'); Snd.deny(); buzz(15); toast('Подкова ' + G.s.L.rings[ri].id + ' на замке: зажги лампочку ' + (G.s.C.lockLamp[ri] + 1)); R3.level.rings[ri].shake = now(); return; }
+  const s = ringScreen(ri);
+  G.press = { ri, id: e.pointerId, x: e.clientX, y: e.clientY, cx: s.x, cy: s.y, rpx: s.rpx, a: 0, acc: 0, drag: false, dir: 0, clicks: 0 };
+  G.press.a = pointerAngle(G.press, e);
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  G.hint = null;
+  log('input', 'press', 'ring=' + G.s.L.rings[ri].id);
+});
+cv.addEventListener('pointermove', (e) => {
+  const P = G.press; if (!P || e.pointerId !== P.id) return;
+  const rect = cv.getBoundingClientRect(), dx = e.clientX - rect.left - P.cx, dy = e.clientY - rect.top - P.cy;
+  if (!P.drag && Math.hypot(e.clientX - P.x, e.clientY - P.y) > VIEW.TAP_PX){ P.drag = true; log('input', 'drag', 'ring=' + G.s.L.rings[P.ri].id); }
+  const a = pointerAngle(P, e);
+  if (Math.hypot(dx, dy) < P.rpx * 0.3){ P.a = a; return; }             // у центра угол пляшет — не крутим
+  let d = a - P.a; if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; P.a = a;
+  if (!P.drag) return;
+  P.acc += d;
+  if (Math.abs(d) > 0.004) P.dir = d > 0 ? 1 : -1;
+  while (Math.abs(P.acc) >= STEP * 0.5){
+    const dir = P.acc > 0 ? 1 : -1;
+    if (G.pending) resolvePending();
+    if (isFail(G.s) || isWin(G.s)){ P.acc = 0; break; }
+    P.acc -= dir * STEP; P.clicks++;
+    if (!turnRing(P.ri, dir, 'drag')) { P.acc = 0; break; }
+  }
+});
+function onUp(e){
+  const P = G.press; if (!P || e.pointerId !== P.id) return;
+  G.press = null;
+  const R = R3 && R3.level && R3.level.rings[P.ri];
+  if (R && P.drag){ R.anim = { from: R.vis, to: R.cont, t0: now(), ms: 140, back: false }; }
+  if (e.type === 'pointercancel') return;
+  if (!P.drag && !P.clicks) turnRing(P.ri, 1, 'tap');
+}
+cv.addEventListener('pointerup', onUp); cv.addEventListener('pointercancel', onUp);
+document.addEventListener('keydown', (e) => {            // дубли на клавиатуру (§3): цифра — по часовой, Shift+цифра — против
+  const mm = /^Digit([1-9])$/.exec(e.code);
+  if (mm && G.s){ if (G.pending) resolvePending(); turnRing(+mm[1] - 1, e.shiftKey ? -1 : 1, 'key'); }
+  if (e.key === 'z' || e.key === 'u') undo(); if (e.key === 'r' && G.s) startLevel(G.s.li); if (e.key === 'm') goto('menu'); if (e.key === 'h') showHint();
+  if (e.key === 'n' && G.s && isWin(G.s)) nextLevel();
+});
+function nextLevel(){ const li = G.s ? G.s.li + 1 : 0; if (li >= LEVELS.length) goto('menu'); else startLevel(li); }
+$('btn-undo').onclick = () => { Snd.init(); log('input', 'button', 'undo'); undo(); };
+$('btn-reset').onclick = () => { Snd.init(); log('input', 'button', 'reset'); if (G.s) startLevel(G.s.li); };
+$('btn-hint').onclick = () => { Snd.init(); log('input', 'button', 'hint'); if (G.s && !G.pending) showHint(); };
+$('btn-menu').onclick = () => { Snd.init(); log('input', 'button', 'menu'); Snd.humOff(); goto('menu'); };
+$('btn-mute').onclick = () => { Snd.init(); G.save.muted = !G.save.muted; save(); hud(); if (G.save.muted) Snd.humOff(); log('input', 'button', 'mute=' + G.save.muted); };
+$('dead-undo').onclick = () => { Snd.init(); log('input', 'button', 'dead.undo'); undo(); };
+$('won-next').onclick = () => { Snd.init(); log('input', 'button', 'won.next'); Snd.humOff(); nextLevel(); };
+
+// --- размер: resize + orientationchange + периодический пересчёт (§2) ---
+let lastW = 0, lastH = 0;
+function fit(){
+  if (!R3) return;
+  const r = $('game').getBoundingClientRect(); if (!r.width || !r.height) return;
+  if (r.width === lastW && r.height === lastH) return; lastW = r.width; lastH = r.height;
+  R3.renderer.setPixelRatio(R3.dpr); R3.renderer.setSize(r.width, r.height, false);
+  R3.camera.aspect = r.width / r.height; frameCamera(); fitPanel();
+}
+let fitTimer = 0;
+const refit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fit, 140); };
+window.addEventListener('resize', refit); window.addEventListener('orientationchange', refit);
+setInterval(fit, 800);
+document.addEventListener('visibilitychange', () => { G.paused = document.hidden; log('event', G.paused ? 'pause' : 'resume'); if (G.paused) Snd.humOff(); else if (G.s && G.s.res.lit && !isFail(G.s)) Snd.humOn(0.6); });
+
+// --- кадр ---
+function renderFrame(){
+  if (!R3) return;
+  const tNow = now(), t0 = performance.now();
+  if (G.pending && tNow >= G.pending) resolvePending();
+  if (R3.level && G.shown){
+    syncView(tNow);
+    updateParts(tNow);
+    const F = window.ZAMKNI_TSEP && window.ZAMKNI_TSEP.flags;
+    if (F && F.noParts){ R3.sparks.count = 0; R3.smoke.count = 0; R3.glints.count = 0; }
+  }
+  R3.renderer.render(R3.scene, R3.camera);
+  const dt = performance.now() - t0;
+  R3.frames.push(dt); if (R3.frames.length > 240) R3.frames.shift();
+  if (G.won && tNow >= G.won) showWon();
+  if (toastUntil && tNow > toastUntil){ $('toast').classList.add('hide'); toastUntil = 0; }
+}
+let lastFrame = 0;
+function spinning(){ const lv = R3 && R3.level; return !!(lv && (G.spinDemo || (G.press && G.press.drag) || lv.rings.some(R => R.anim))); }
+function animating(){ const S = G.shown; return !!(G.pending || (S && now() - S.t0 < CFG.FLOW_MS * 1.2 / G.timeScale) || (R3 && R3.parts.length)); }
+function frame(){
+  const t = performance.now();
+  if (G.bench && lastFrame){ if (spinning()) G.bench.spin.push(t - lastFrame); else if (animating()) G.bench.fx.push(t - lastFrame); }
+  lastFrame = t; if (!G.paused) renderFrame(); requestAnimationFrame(frame);
+}
+setInterval(() => { if (performance.now() - lastFrame > 120 && !G.paused) renderFrame(); }, 40);   // rAF + сторож: безопасно, время абсолютное (§4)
+
+// --- дебаг-хук (§6) ---
+const waitFrames = () => new Promise(res => requestAnimationFrame(res));
+function benchStats(ints){
+  ints = ints.slice().sort((a, b) => a - b); const avg = ints.reduce((a, b) => a + b, 0) / Math.max(1, ints.length);
+  return { frames: ints.length, fps: +(1000 / Math.max(1e-6, avg)).toFixed(1), p95ms: +(ints[Math.floor(ints.length * 0.95)] || 0).toFixed(1), long: ints.filter(x => x > 25).length };
+}
+window.ZAMKNI_TSEP = {
+  G, LEVELS, PERF,
+  state(){ return G.s ? { level: G.s.li + 1, name: G.s.L.name, g: G.s.g.join(''), kind: G.s.res.kind, lit: G.s.res.lit, unl: G.s.unl, moves: G.s.moves, par: G.par,
+    win: isWin(G.s), fail: isFail(G.s), reason: failReason(G.s), pending: !!G.pending, screen: G.screen,
+    banner: $('dead').classList.contains('show') ? 'dead' : $('won').classList.contains('show') ? 'won' : '' } : { screen: G.screen }; },
+  play(n){ startLevel(Math.max(0, Math.min(LEVELS.length, n || 1) - 1)); return this.state(); },
+  turn(ri, dir){ if (G.pending) resolvePending(); turnRing(ri, dir || 1, 'key'); return this.state(); },
+  tap(ri){ if (G.pending) resolvePending(); turnRing(ri, 1, 'tap'); return this.state(); },
+  press(ri, dir){ G.press = { ri, id: -1, x: 0, y: 0, cx: 0, cy: 0, rpx: 1, a: 0, acc: 0, drag: false, dir: dir || 0, clicks: 0 }; const n = previewMoveState(G.s, moveOf(ri, dir || 1)); return n ? { kind: n.res.kind, lit: n.res.lit } : null; },
+  release(){ const P = G.press; G.press = null; return P ? turnRing(P.ri, P.dir || 1, 'tap') : false; },
+  undo(){ undo(); return this.state(); },
+  goto(screen){ goto(screen); return G.screen; },
+  solve(){ return G.s ? solve(G.s) : null; },
+  hint(){ showHint(); return G.hint; },
+  auto(delayMs){ const path = this.solve() || []; path.forEach((m, k) => setTimeout(() => { if (G.pending) resolvePending(); turnRing(m >> 1, (m & 1) ? -1 : 1, 'auto'); }, (delayMs || 900) * k)); return path; },
+  greedy(){ return G.s ? greedyRun(G.s.li).path : []; },
+  drive(sec, stepMs){                         // ручной прогон времени: rAF заморожен в скрытой вкладке/превью
+    const step = stepMs || 1000 / 60, n = Math.round(sec * 1000 / step);
+    for (let i = 0; i < n; i++){ T.off += step; renderFrame(); }
+    return this.state();
+  },
+  speed(x){ G.timeScale = x || 1; return G.timeScale; },
+  rings(){ return G.s ? G.s.L.rings.map((r, ri) => ({ ri, id: r.id, g: G.s.g[ri], locked: ringLocked(G.s, ri), screen: R3 && R3.level ? ringScreen(ri) : null })) : []; },
+  async bench(rounds){                        // замер кадра: решение текущего уровня на реальном rAF; эффекты и кручение отдельно
+    rounds = rounds || 2; const li = G.s ? G.s.li : 6, cpu = []; G.bench = { fx: [], spin: [] };
+    for (let r = 0; r < rounds; r++){
+      startLevel(li); await new Promise(res => setTimeout(res, 300));
+      const path = solve(G.s) || [];
+      for (const m of path){
+        R3.frames.length = 0; if (G.pending) resolvePending(); turnRing(m >> 1, (m & 1) ? -1 : 1, 'auto');
+        while (spinning() || G.pending) await waitFrames();
+        cpu.push(...R3.frames);
+      }
+      for (const t0 = performance.now(); performance.now() - t0 < 1600;) await waitFrames();
+      startLevel(2); applyPath(greedyRun(2).path); for (const t0 = performance.now(); performance.now() - t0 < 1500;) await waitFrames();
+    }
+    startLevel(li);
+    G.spinDemo = now(); for (const t0 = performance.now(); performance.now() - t0 < 2000;) await waitFrames(); G.spinDemo = 0;
+    const B = G.bench; G.bench = null; cpu.sort((a, b) => a - b);
+    const out = { fx: benchStats(B.fx), spin: benchStats(B.spin), cpuAvgMs: +(cpu.reduce((a, b) => a + b, 0) / Math.max(1, cpu.length)).toFixed(2),
+      cpuP95ms: +(cpu[Math.floor(cpu.length * 0.95)] || 0).toFixed(2), dpr: R3.dpr, size: R3.renderer.domElement.width + '×' + R3.renderer.domElement.height };
+    log('event', 'bench', JSON.stringify(out)); return out;
+  },
+  startup(){ return PERF; },
+  get R3(){ return R3; },
+  flags: {},
+  reset(){ try { localStorage.removeItem(SAVE_KEY); } catch (e) {} location.reload(); },
+};
+
+// --- старт: меню сразу (DOM), GL и модели — следом; холст проявляется, когда шейдеры собраны и прогреты ---
+hud();
+const routed = routeHash();
+if (!routed) goto('menu');
+mark('menu');
+(async function boot(){
+  try {
+    await new Promise(r => setTimeout(r, 0));
+    initRenderer();
+    lastW = 0; fit();
+    await Promise.race([loadModels(), new Promise(r => setTimeout(r, 6000))]);
+    if (!G.s){ G.s = createState(Math.min(G.save.level, LEVELS.length - 1)); G.shown = showState(G.s, now() - 10000); G.par = analyze(G.s).par; }
+    buildLevel(G.s.L, true); mark('level');
+    if (R3.renderer.compileAsync) await R3.renderer.compileAsync(R3.scene, R3.camera); mark('compile');
+    warmUp(); renderFrame(); mark('firstFrame');
+    $('gl').classList.add('ready'); hud();
+    requestAnimationFrame(frame);
+    log('event', 'boot', 'levels=' + LEVELS.length + ' glb=' + Object.keys(GLB).join(','));
+  } catch (err) { console.error(err); log('event', 'boot.fail', err.message); toast('3D не запустился: ' + err.message, 6000); }
+})();
+}
+</script>
+</body>
+</html>
