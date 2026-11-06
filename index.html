@@ -60,7 +60,10 @@ button:active{transform:translateY(2px)}
 #won #won-text{color:#5a4a2a;font-size:15px}
 #won button{width:100%;font-size:22px;padding:14px 16px;border-radius:16px}
 @keyframes wonIn{from{transform:translateY(16px) scale(.97)}to{transform:none}}
-#dead .zap{flex:none;width:34px;height:34px} #won .zap{flex:none;width:34px;height:34px}
+#dead .zap{flex:none;width:30px;height:30px;margin:0 -4px} #won .zap{flex:none;width:34px;height:34px}
+/* Искра картинкой: гнездо одного цвета ⚡ гнездо другого — без слов про плюсы и минусы. */
+#dead .pic{display:flex;align-items:center;flex:none} #dead .pic svg.sock{width:34px;height:34px}
+#dead .txt{flex:1} #dead b{font-size:22px;letter-spacing:.3px;text-transform:none}
 .banner button{flex:none;border:0;border-radius:12px;background:var(--accent);color:var(--accent-ink);font:inherit;font-weight:900;padding:10px 12px;box-shadow:0 4px 0 #d79c00;cursor:pointer}
 #overlay{position:absolute;inset:0;z-index:5;display:none;align-items:center;justify-content:center;background:rgba(10,14,24,.55);padding:20px}
 #overlay.show{display:flex}
@@ -92,8 +95,8 @@ button:active{transform:translateY(2px)}
   </header>
   <div id="hint"></div>
   <div id="game"><canvas id="gl"></canvas></div>
-  <div id="dead" class="banner"><svg class="zap" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z" fill="#ff4d4d" stroke="#8a1010" stroke-width="1.4" stroke-linejoin="round"/></svg>
-    <div><b id="dead-title">Короткое замыкание</b><span id="dead-text"></span></div><button id="dead-undo">Отменить</button></div>
+  <div id="dead" class="banner"><div class="pic"><span id="dead-a"></span><svg class="zap" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z" fill="#ff4d4d" stroke="#8a1010" stroke-width="1.4" stroke-linejoin="round"/></svg><span id="dead-b"></span></div>
+    <div class="txt"><b id="dead-title">Искра!</b></div><button id="dead-undo">Отменить</button></div>
   <div id="won" class="banner"><div class="row"><svg class="zap" viewBox="0 0 24 24"><circle cx="12" cy="10" r="6.5" fill="#ffd76a" stroke="#a86a00" stroke-width="1.4"/><path d="M9 17h6M10 20h4" stroke="#a86a00" stroke-width="1.8" stroke-linecap="round"/></svg>
     <b>Горит!</b><div class="stars" id="won-stars"></div></div><span id="won-text"></span><button id="won-next">Дальше</button></div>
   <footer>
@@ -113,39 +116,46 @@ button:active{transform:translateY(2px)}
 { // весь код в блоке: three.cjs объявляет сотни глобальных const, одноимённые объявления на верхнем уровне упали бы
 /* ЯДРО */
 // ---------------------------------------------------------------------------
-// «Замкни цепь» v0.1 — ядро правил. Исполняется игрой и sim.mjs/test.mjs (core-load.mjs вырезает этот блок из index.html).
+// «Замкни цепь» v0.3 «Цвета» — ядро правил. Исполняется игрой и sim.mjs/test.mjs (core-load.mjs вырезает этот блок из index.html).
 //
-// Панель электрика: на винтах висят стеклянные подковы (дуга 270°, разрыв 90°), внутри — медная жила.
-// Подкова крутится вокруг винта щелчками по 45°. g — куда смотрит разрыв: 0 вверх, дальше по часовой на экране
+// На панели — голые металлические подковы (дуга 270°, разрыв 90°) и цветные гнёзда парами: два синих, два жёлтых, …
+// Подкова крутится вокруг оси щелчками по 45°. g — куда смотрит разрыв: 0 вверх, дальше по часовой на экране
 // (1 вверх-вправо, 2 вправо, 3 вниз-вправо, 4 вниз, 5 вниз-влево, 6 влево, 7 вверх-влево).
 // Концы подковы — по бокам разрыва, на направлениях g−1 и g+1: подкова соединяет две точки компаса через 90°.
-// Винты стоят на решётке с шагом 2R, поэтому боковые концы (С, В, Ю, З) соседних подков сходятся в одной точке — стык.
+// Оси стоят на решётке с шагом 2R, поэтому боковые концы (С, В, Ю, З) соседних подков сходятся в одной точке — стык.
 //
-// Что касается конца подковы: клемма батарейки (+ или −), клемма лампочки, медный пятачок или конец соседней подковы.
-// Пятачок соединяет всё, что его касается. Выводы батарейки и лампочек — неподвижные провода до своих клемм.
+// Что касается конца подковы: цветное гнездо, медный пятачок или конец соседней подковы. Пятачок соединяет всё, что его касается.
 //
-//   • Цепь считается после каждого щелчка: жилы и пятачки сливают точки в узлы (union-find), лампочки — рёбра между узлами.
-//   • Короткое замыкание: + и − в одном узле (ток идёт в обход всех лампочек). Шунт: у лампочки оба вывода в одном узле,
-//     и через этот узел идёт ток (+ → … → −). И то и другое — искры, уровень проигран, отмена бесплатна.
-//   • Лампочка горит, если лежит на пути + → … → − по лампочкам. Победа — горят все лампочки и нет замыкания.
-//   • Замок: подкова не крутится, пока хоть раз не загорелась её лампочка.
+//   • Сеть — всё, что связано подковами и пятачками (union-find по точкам касания). Сеть считается после каждого щелчка.
+//   • Гнёзда одного цвета в одной сети — пара соединена: по сети бежит ток этого цвета, гнёзда-плафоны горят.
+//   • Разные цвета в одной сети — ИСКРА (короткое замыкание без плюсов и минусов). Ходы стоят до отмены, отмена бесплатна.
+//   • Победа — соединены все пары и нигде нет искры.
+//   • Замок: подкова не крутится, пока хоть раз не загорится пара её цвета.
 // Ход m: подкова m>>1, m чётный — по часовой, нечётный — против.
 // ---------------------------------------------------------------------------
 const CFG = {
   R: 1.0,               // радиус осевой линии подковы, мировые единицы
-  TUBE_R: 0.17,         // радиус стеклянной трубки
-  STEP: 2.0,            // шаг решётки винтов (= 2R: концы соседних подков сходятся)
+  TUBE_R: 0.12,         // радиус металлического прутка подковы
+  STEP: 2.0,            // шаг решётки осей (= 2R: концы соседних подков сходятся)
   POS: 8,               // положений разрыва; щелчок — 45°
-  PAD_R: 0.16,          // радиус клеммы/пятачка у точки касания (вид и проверка раскладки)
+  PAD_R: 0.16,          // радиус пятачка у точки касания (вид и проверка раскладки)
   EPS: 0.02,            // точки ближе — одна точка
   CLICK_MS: 130,        // щелчок подковы (анимация; ядро не зависит)
-  FLOW_MS: 1300,        // ток бежит от + до лампочки и дальше до −
-  SPARK_MS: 900,        // искры и дым замыкания
+  FLOW_MS: 1100,        // ток бежит от гнезда до гнезда
+  SPARK_MS: 900,        // искры и дым
   SOLVE_LIMIT: 700000,  // предел состояний перебора
   RANDOM_MOVES: 60,     // случайный бот: щелчков на партию
 };
 const DIR = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const GNAME = ['вверх', 'вверх-вправо', 'вправо', 'вниз-вправо', 'вниз', 'вниз-влево', 'влево', 'вверх-влево'];
+// Цвета пар. Порядок — номер бита в res.lit. Форма на плафоне дублирует цвет (PROTO-BASE §9).
+const COLORS = [
+  { id: 'b', name: 'синий', ins: 'синим', shape: 'circle' },
+  { id: 'y', name: 'жёлтый', ins: 'жёлтым', shape: 'tri' },
+  { id: 'g', name: 'зелёный', ins: 'зелёным', shape: 'square' },
+  { id: 'p', name: 'розовый', ins: 'розовым', shape: 'diamond' },
+];
+const COLOR_IX = new Map(COLORS.map((c, i) => [c.id, i]));
 
 // Детерминированный генератор (PROTO-BASE §5). Math.random() не используется.
 function mulberry32(seed){
@@ -159,62 +169,34 @@ function mulberry32(seed){
   };
 }
 
-// Уровни — декларативная таблица. Раскладки нарисованы руками, стартовые углы подобраны перебором (tools/levelsearch.mjs).
+// Уровни — декларативная таблица. Раскладки подобраны tools/levelsearch.mjs и доведены руками.
 // Подкова: id, c/r — клетка решётки (центр = c·STEP, r·STEP; r растёт вверх), g — стартовое положение разрыва.
-// Ссылка на точку: «A.SW» — конец подковы A в направлении SW, или id пятачка/узла.
-// pads — медные пятачки: какие точки касания они покрывают. nodes — свободные клеммы (x, y) для выводов.
-// bat — батарейка: p (+), m (−), x/y — где лежит корпус. lamps — лампочки: a, b — выводы, x/y — где стоит.
-// locks — замки: подкова ring не крутится, пока не загорится лампочка lamp.
+// Ссылка на точку: «A.SW» — конец подковы A в направлении SW, или id пятачка.
+// pads — медные пятачки: какие точки касания они покрывают. socks — гнёзда по цветам: { b: ['A.NE', 'A.SE'], y: [...] }.
+// locks — замки: подкова ring не крутится, пока не загорится пара color.
 const LEVELS = [
-  // 1. Один щелчок: подкова A соединяет + и лампочку; вторые выводы батарейки и лампочки сведены на одну клемму w.
-  { n: 1, name: 'Щелчок', hint: 'Тапни подкову — она повернётся по часовой',
-    rings: [{ id: 'A', c: 0, r: 0, g: 1 }],
-    nodes: [{ id: 'w', x: 2.3, y: 0 }],
-    bat: { p: 'A.SE', m: 'w', x: 1.55, y: -1.75 }, lamps: [{ id: 'L1', a: 'A.NE', b: 'w', x: 1.55, y: 1.75 }] },
-  // 2. Две подковы-«колена»: A ведёт + к лампочке, B — от лампочки к −. Поворот выбирает, какую пару концов соединить.
-  { n: 2, name: 'Две подковы', hint: 'Подкова соединяет то, чего касаются её концы',
-    rings: [{ id: 'A', c: 0, r: 0, g: 6 }, { id: 'B', c: 1, r: 0, g: 0 }],
-    bat: { p: 'A.W', m: 'B.E' }, lamps: [{ id: 'L1', a: 'A.N', b: 'B.N' }] },
-  // 3. Первое «ага»: снизу + и − рядом через пятачок — два тапа, и короткое замыкание. Ток надо вести верхом, через лампочку.
-  { n: 3, name: 'Через лампочку', hint: '',
-    rings: [{ id: 'A', c: 0, r: 0, g: 3 }, { id: 'B', c: 1, r: 0, g: 3 }],
-    pads: [{ id: 'u', tips: ['A.SE', 'B.SW'] }],
-    bat: { p: 'A.SW', m: 'B.SE' }, lamps: [{ id: 'L1', a: 'A.NW', b: 'B.NE' }] },
-  // 4. Лишняя подкова: X перемыкает выводы лампочки. Замкнёшь цепь, не убрав её, — ток пойдёт мимо лампочки.
-  { n: 4, name: 'Лишняя подкова', hint: '',
-    rings: [{ id: 'A', c: 0, r: 0, g: 6 }, { id: 'B', c: 1, r: 0, g: 0 }, { id: 'X', c: 0.5, r: 1, g: 4 }],
-    pads: [{ id: 'pa', tips: ['A.N', 'X.SW'] }, { id: 'pb', tips: ['B.N', 'X.SE'] }],
-    bat: { p: 'A.W', m: 'B.E' }, lamps: [{ id: 'L1', a: 'pa', b: 'pb', x: 1, y: 3.75 }] },
-  // 5. Две лампочки последовательно (столбик): левым боком через обе, правым через пятачки — замыкание.
-  { n: 5, name: 'Две лампочки', hint: 'Гореть должны обе',
-    rings: [{ id: 'A', c: 0, r: 0, g: 2 }, { id: 'B', c: 0, r: 1, g: 1 }, { id: 'C', c: 0, r: 2, g: 1 }],
-    pads: [{ id: 'u1', tips: ['A.NE', 'B.SE'] }, { id: 'u2', tips: ['B.NE', 'C.SE'] }],
-    bat: { p: 'A.SE', m: 'C.NE', x: 1.85, y: 2 }, lamps: [{ id: 'L1', a: 'A.SW', b: 'B.SW', x: -1.95, y: -0.05 }, { id: 'L2', a: 'B.NW', b: 'C.NW', x: -1.95, y: 3.25 }] },
-  // 6. Замок: C не крутится, пока не загорится лампочка 1. Сначала зажги её одну (B — на дорожку к −), потом собирай гирлянду.
-  { n: 6, name: 'Замок', hint: 'Замок откроется, когда загорится лампочка 1',
-    rings: [{ id: 'A', c: 0, r: 0, g: 4 }, { id: 'B', c: 0, r: 1, g: 0 }, { id: 'C', c: 0, r: 2, g: 2 }],
-    pads: [{ id: 't', tips: ['A.NE', 'B.SE', 'C.NE'] }],
-    bat: { p: 'A.SE', m: 't', x: 1.85, y: 2 }, lamps: [{ id: 'L1', a: 'A.SW', b: 'B.SW', x: -1.95, y: -0.05 }, { id: 'L2', a: 'B.NW', b: 'C.NW', x: -1.95, y: 3.25 }],
-    locks: [{ ring: 'C', lamp: 'L1' }] },
-  // 7. Развилка: пятачок в центре касается всех четырёх. D проворачивается мимо замыкания, только пока A не подаёт ток на развилку.
-  { n: 7, name: 'Развилка', hint: '',
-    rings: [{ id: 'A', c: 0, r: 0, g: 2 }, { id: 'B', c: 1, r: 0, g: 2 }, { id: 'C', c: 0, r: 1, g: 2 }, { id: 'D', c: 1, r: 1, g: 5 }],
-    pads: [{ id: 'x', tips: ['A.NE', 'B.NW', 'C.SE', 'D.SW'] }, { id: 'r', tips: ['D.SE', 'B.NE'] }],
-    bat: { p: 'A.SE', m: 'B.SE' }, lamps: [{ id: 'L1', a: 'C.NE', b: 'D.NE' }] },
-  // 8. Гирлянда: развилка и две лампочки. B в шаге от замыкания — короткая сторона закорачивает, крутить надо длинной.
-  { n: 8, name: 'Гирлянда', hint: '',
-    rings: [{ id: 'A', c: 0, r: 0, g: 3 }, { id: 'B', c: 1, r: 0, g: 5 }, { id: 'C', c: 0, r: 1, g: 3 }, { id: 'D', c: 1, r: 1, g: 4 }],
-    pads: [{ id: 'x', tips: ['A.NE', 'B.NW', 'C.SE', 'D.SW'] }, { id: 'u', tips: ['A.SE', 'B.SW'] }],
-    bat: { p: 'u', m: 'B.SE' }, lamps: [{ id: 'L1', a: 'C.NE', b: 'D.NE' }, { id: 'L2', a: 'D.SE', b: 'B.NE', x: 3.85, y: 1.0 }] },
-  // 9. Большой: 6 подков, 3 лампочки, две развилки, замок. Этапы: малая цепь через обе развилки зажигает лампочку 1 (обратный путь —
-  // по дорожке − к стыку C–E) → замок с F снят → D и E возвращаются, ток идёт большим кольцом через все три. par записан (проверяет sim).
-  { n: 9, name: 'Мастерская', hint: 'Сначала зажги лампочку 1 — откроется замок', par: 13,
-    rings: [{ id: 'A', c: 0, r: 0, g: 6 }, { id: 'B', c: 1, r: 0, g: 6 }, { id: 'C', c: 0, r: 1, g: 0 }, { id: 'D', c: 1, r: 1, g: 4 }, { id: 'E', c: 0, r: 2, g: 7 }, { id: 'F', c: 1, r: 2, g: 7 }],
-    pads: [{ id: 'x1', tips: ['A.NE', 'B.NW', 'C.SE', 'D.SW'] }, { id: 'x2', tips: ['C.NE', 'D.NW', 'E.SE', 'F.SW'] }, { id: 'u', tips: ['A.SE', 'B.SW'] },
-      { id: 'kp', tips: ['A.W', 'A.SW'] }, { id: 'kc', tips: ['C.W', 'C.NW'] }, { id: 'kd', tips: ['D.E', 'D.SE'] },
-      { id: 'km', tips: ['B.E', 'B.SE', 'C.N'], path: ['B.E', 'B.SE', [2.71, -1.36], [-1.38, -1.36], [-1.38, 3], 'C.N'] }],
-    bat: { p: 'kp', m: 'km', x: 1, y: -1.95 }, lamps: [{ id: 'L1', a: 'kc', b: 'E.W', x: -2.15, y: 2.45 }, { id: 'L2', a: 'E.N', b: 'F.N', x: 1, y: 5.3 }, { id: 'L3', a: 'F.E', b: 'kd', x: 4.05, y: 2.45 }],
-    locks: [{ ring: 'F', lamp: 'L1' }] },
+  // LEVELS-BEGIN
+  // 1. Щелчок: одна подкова, один тап — синий соединился с синим.
+  { n: 1, name: 'Щелчок', rings: [{ id: 'A', c: 0, r: 0, g: 0 }], socks: { b: ['A.N', 'A.E'] } },
+  // 2. Искра: жёлтая пара уже горит, её гнездо — на стыке. Тап по A (по часовой) суёт синий конец в жёлтое гнездо — искра.
+  //    Против часовой (драг) — синие горят. После искры и отмены подсказка-стрелка показывает сторону.
+  { n: 2, name: 'Искра', rings: [{ id: 'A', c: 0, r: 0, g: 0 }, { id: 'B', c: 1, r: 0, g: 7 }], socks: { b: ['A.W', 'A.N'], y: ['B.W', 'B.N'] } },
+  // 3. Сначала убери: синяя B держит стык. Крутишь A кратчайшей стороной — искра; сначала отведи B со стыка (первое «ага»).
+  { n: 3, name: 'Сначала убери', rings: [{ id: 'A', c: 0, r: 0, g: 2 }, { id: 'B', c: 1, r: 0, g: 5 }], socks: { b: ['B.E', 'B.S'], y: ['A.N', 'A.W'] } },
+  // 4. Уголок: жёлтое гнездо на стыке A–C, жёлтой паре нужны две подковы. Синяя B ждёт, пока A уйдёт со стыка.
+  { n: 4, name: 'Уголок', rings: [{ id: 'A', c: 0, r: 0, g: 1 }, { id: 'B', c: 1, r: 0, g: 6 }, { id: 'C', c: 0, r: 1, g: 1 }], socks: { b: ['B.N', 'B.E'], y: ['A.N', 'C.E'] } },
+  // 5. Цепочка: жёлтая пара — через две подковы (B и C сцеплены на стыке). Синяя A у нижнего стыка: сначала B уходит, потом A, потом цепочка.
+  { n: 5, name: 'Цепочка', rings: [{ id: 'A', c: 0, r: 0, g: 0 }, { id: 'B', c: 0, r: 1, g: 3 }, { id: 'C', c: 0, r: 2, g: 7 }], socks: { b: ['A.W', 'A.S'], y: ['C.W', 'B.E'] } },
+  // 6. Перекрёсток: медный пятачок в центре касается всех четырёх. Через него может идти только один цвет.
+  { n: 6, name: 'Перекрёсток', rings: [{ id: 'A', c: 0, r: 0, g: 7 }, { id: 'B', c: 1, r: 0, g: 6 }, { id: 'C', c: 0, r: 1, g: 3 }, { id: 'D', c: 1, r: 1, g: 5 }],
+    pads: [{ id: 'x', tips: ['A.NE', 'B.NW', 'C.SE', 'D.SW'] }], socks: { b: ['C.NW', 'C.NE'], y: ['B.SW', 'D.NW'] } },
+  // 7. Три цвета: зелёный, жёлтый и синий делят два стыка.
+  { n: 7, name: 'Три цвета', rings: [{ id: 'A', c: 0, r: 0, g: 1 }, { id: 'B', c: 1, r: 0, g: 6 }, { id: 'C', c: 0, r: 1, g: 2 }, { id: 'D', c: 1, r: 1, g: 6 }],
+    socks: { b: ['D.NW', 'D.NE'], y: ['B.N', 'B.E'], g: ['A.N', 'C.W'] } },
+  // 8. Мастерская: пять подков, три цвета, синее гнездо на стыке C–D. Обход +2: подковы приходится уводить и возвращать.
+  { n: 8, name: 'Мастерская', rings: [{ id: 'A', c: 0, r: 0, g: 1 }, { id: 'B', c: 1, r: 0, g: 1 }, { id: 'C', c: 0, r: 1, g: 3 }, { id: 'D', c: 1, r: 1, g: 6 }, { id: 'E', c: 1, r: 2, g: 0 }],
+    socks: { b: ['C.E', 'A.W'], y: ['E.NE', 'E.SE'], g: ['B.E', 'D.E'] } },
+  // LEVELS-END
 ];
 
 // ---- геометрия ----
@@ -233,12 +215,10 @@ function compile(L){
   const ptAt = (x, y) => {
     const k = Math.round(x / CFG.EPS) + ',' + Math.round(y / CFG.EPS);
     if (key.has(k)) return key.get(k);
-    pts.push({ x, y, tips: [], pad: -1, node: null, pins: [] }); key.set(k, pts.length - 1); return pts.length - 1;
+    pts.push({ x, y, tips: [], pad: -1, sock: -1 }); key.set(k, pts.length - 1); return pts.length - 1;
   };
   const rid = new Map(L.rings.map((r, i) => [r.id, i]));
   const tipPt = L.rings.map((r, ri) => DIR.map((d, k) => { const p = tipPos(r, k), i = ptAt(p.x, p.y); pts[i].tips.push({ ri, k }); return i; }));
-  const nodeIx = new Map();
-  for (const nd of (L.nodes || [])){ const i = ptAt(nd.x, nd.y); pts[i].node = nd.id; nodeIx.set(nd.id, i); }
   const padIx = new Map(), padPts = [];
   (L.pads || []).forEach((pd, pi) => { padIx.set(pd.id, pi); padPts.push([]); });
   const errs = [];
@@ -252,54 +232,51 @@ function compile(L){
   });
   const resolve = (ref, who) => {
     if (padIx.has(ref)) return padPts[padIx.get(ref)][0];
-    if (nodeIx.has(ref)) return nodeIx.get(ref);
     const i = tipRef(ref); if (i < 0) errs.push(who + ': нет точки ' + ref);
     return i;
   };
   const base = new Int16Array(pts.length); for (let i = 0; i < pts.length; i++) base[i] = i;
   const find0 = (p, i) => { while (p[i] !== i){ p[i] = p[p[i]]; i = p[i]; } return i; };
   for (const pp of padPts) for (let k = 1; k < pp.length; k++){ const a = find0(base, pp[0]), b = find0(base, pp[k]); if (a !== b) base[a] = b; }
-  const P = resolve(L.bat.p, 'батарейка +'), M = resolve(L.bat.m, 'батарейка −');
-  if (P >= 0) pts[P].pins.push({ comp: 'bat', pin: 'p' }); if (M >= 0) pts[M].pins.push({ comp: 'bat', pin: 'm' });
-  const lamps = L.lamps.map((lp, li) => { const a = resolve(lp.a, 'лампочка ' + lp.id), b = resolve(lp.b, 'лампочка ' + lp.id);
-    if (a >= 0) pts[a].pins.push({ comp: li, pin: 'a' }); if (b >= 0) pts[b].pins.push({ comp: li, pin: 'b' }); return { a, b }; });
-  const lockLamp = L.rings.map(() => -1);
-  for (const lk of (L.locks || [])){ const ri = rid.get(lk.ring), li = L.lamps.findIndex(x => x.id === lk.lamp);
-    if (ri === undefined || li < 0) errs.push('замок ' + lk.ring + '/' + lk.lamp + ': нет подковы или лампочки'); else lockLamp[ri] = li; }
-  C = { L, pts, tipPt, padPts, base, P, M, lamps, lockLamp, errs, n: L.rings.length, par: new Int16Array(pts.length), rid };
+  // гнёзда: socks[si] = { pt, color }; colorSocks[ci] = [si…]; colors — какие цвета есть на уровне (индексы COLORS)
+  const socks = [], colorSocks = COLORS.map(() => []);
+  for (const [cid, refs] of Object.entries(L.socks || {})){
+    const ci = COLOR_IX.get(cid); if (ci === undefined){ errs.push('нет цвета ' + cid); continue; }
+    for (const ref of refs){ const pt = resolve(ref, 'гнездо ' + cid); if (pt < 0) continue;
+      if (pts[pt].sock >= 0) errs.push('два гнезда в одной точке ' + ref);
+      pts[pt].sock = socks.length; colorSocks[ci].push(socks.length); socks.push({ pt, color: ci, ref }); }
+  }
+  const colors = COLORS.map((c, i) => i).filter(i => colorSocks[i].length);
+  const allLit = colors.reduce((a, ci) => a | (1 << ci), 0);
+  const lockColor = L.rings.map(() => -1);
+  for (const lk of (L.locks || [])){ const ri = rid.get(lk.ring), ci = COLOR_IX.get(lk.color);
+    if (ri === undefined || ci === undefined || !colorSocks[ci].length) errs.push('замок ' + lk.ring + '/' + lk.color + ': нет подковы или цвета'); else lockColor[ri] = ci; }
+  C = { L, pts, tipPt, padPts, base, socks, colorSocks, colors, allLit, lockColor, errs, n: L.rings.length, par: new Int16Array(pts.length), rid,
+    rootColor: new Int8Array(pts.length), rootSock: new Int16Array(pts.length) };
   COMPILED.set(L, C); return C;
 }
 function find(p, i){ while (p[i] !== i){ p[i] = p[p[i]]; i = p[i]; } return i; }
 function unite(p, a, b){ a = find(p, a); b = find(p, b); if (a !== b) p[a] = b; }
 
-// ---- цепь: короткое замыкание, шунт, какие лампочки горят ----
-// kind: 'short' (+ и − в одном узле), 'shunt' (под током лампочка закорочена), 'win' (горят все), 'open' (иначе; lit — что горит).
+// ---- сеть: искра, какие пары соединены ----
+// kind: 'spark' (разные цвета в одной сети; mix — два гнезда разных цветов), 'win' (соединены все пары), 'open' (иначе; lit — какие пары горят).
 function evalCircuit(C, g, out){
   const p = C.par; p.set(C.base);
   for (let ri = 0; ri < C.n; ri++){ const t = tipsOf(g[ri]); unite(p, C.tipPt[ri][t[0]], C.tipPt[ri][t[1]]); }
-  const r = out || {}; r.kind = 'open'; r.lit = 0; r.shunt = -1; r.live = null;
-  const P = find(p, C.P), M = find(p, C.M);
-  if (P === M){ r.kind = 'short'; return r; }
-  const nl = C.lamps.length, U = new Int16Array(nl), V = new Int16Array(nl);
-  for (let i = 0; i < nl; i++){ U[i] = find(p, C.lamps[i].a); V[i] = find(p, C.lamps[i].b); }
-  // все простые пути P → M по лампочкам (лампочек ≤ 4 — перебор мгновенный)
-  const live = new Set(), stack = [P];
-  const dfs = (node, used) => {
-    if (node === M){ r.lit |= used; for (const x of stack) live.add(x); return; }
-    for (let i = 0; i < nl; i++){
-      if (used & (1 << i) || U[i] === V[i]) continue;
-      const nx = U[i] === node ? V[i] : V[i] === node ? U[i] : -1;
-      if (nx < 0 || stack.includes(nx)) continue;
-      stack.push(nx); dfs(nx, used | (1 << i)); stack.pop();
-    }
-  };
-  dfs(P, 0);
-  for (let i = 0; i < nl; i++) if (U[i] === V[i] && live.has(U[i])){ r.kind = 'shunt'; r.shunt = i; return r; }
-  r.live = live;
-  if (r.lit === (1 << nl) - 1) r.kind = 'win';
+  const r = out || {}; r.kind = 'open'; r.lit = 0; r.mix = null;
+  const rc = C.rootColor, rs = C.rootSock; rc.fill(-1);
+  for (let si = 0; si < C.socks.length; si++){
+    const S = C.socks[si], root = find(p, S.pt);
+    if (rc[root] < 0){ rc[root] = S.color; rs[root] = si; }
+    else if (rc[root] !== S.color){ r.kind = 'spark'; r.mix = [rs[root], si]; return r; }
+  }
+  for (const ci of C.colors){ const ss = C.colorSocks[ci], r0 = find(p, C.socks[ss[0]].pt); let ok = true;
+    for (let k = 1; k < ss.length; k++) if (find(p, C.socks[ss[k]].pt) !== r0){ ok = false; break; }
+    if (ok) r.lit |= 1 << ci; }
+  if (r.lit === C.allLit) r.kind = 'win';
   return r;
 }
-function isFailKind(k){ return k === 'short' || k === 'shunt'; }
+function isFailKind(k){ return k === 'spark'; }
 
 // ---- состояние ----
 function createState(li, def){
@@ -308,10 +285,10 @@ function createState(li, def){
   s.res = evalCircuit(C, s.g); s.unl = unlockFrom(C, s.res, 0);
   return s;
 }
-function unlockFrom(C, res, unl){ if (isFailKind(res.kind)) return unl; for (let ri = 0; ri < C.n; ri++){ const li = C.lockLamp[ri]; if (li >= 0 && (res.lit & (1 << li))) unl |= 1 << ri; } return unl; }
+function unlockFrom(C, res, unl){ if (isFailKind(res.kind)) return unl; for (let ri = 0; ri < C.n; ri++){ const ci = C.lockColor[ri]; if (ci >= 0 && (res.lit & (1 << ci))) unl |= 1 << ri; } return unl; }
 function cloneState(s){ return { li: s.li, L: s.L, C: s.C, g: s.g.slice(), unl: s.unl, moves: s.moves, hist: s.hist.slice(), ev: [], res: s.res }; }
 function stateKey(s){ return s.g.join('') + '|' + s.unl; }
-function ringLocked(s, ri){ return s.C.lockLamp[ri] >= 0 && !(s.unl & (1 << ri)); }
+function ringLocked(s, ri){ return s.C.lockColor[ri] >= 0 && !(s.unl & (1 << ri)); }
 function isWin(s){ return s.res.kind === 'win'; }
 function isFail(s){ return isFailKind(s.res.kind); }
 function isLose(s){ return isFail(s); }
@@ -329,7 +306,7 @@ function applyMove(s, m){
   const was = n.unl; n.unl = unlockFrom(n.C, n.res, n.unl);
   n.ev.push({ k: 'turn', ri, dir, g: n.g[ri] });
   if (n.unl !== was) for (let k = 0; k < n.C.n; k++) if ((n.unl & ~was) & (1 << k)) n.ev.push({ k: 'unlock', ri: k });
-  n.ev.push({ k: n.res.kind, lit: n.res.lit, shunt: n.res.shunt });
+  n.ev.push({ k: n.res.kind, lit: n.res.lit, newLit: n.res.lit & ~(s.res.lit || 0) });
   n.moves++;
   return n;
 }
@@ -342,51 +319,52 @@ function undoMove(s){
 function moveEvents(s, m){ const n = applyMove(s, m); return n === s ? [] : n.ev; }
 function previewMove(s, m){ const n = applyMove(s, m); return n === s ? null : n; }
 
-// ---- подробности цепи для рендера и причин: какие подковы, пятачки и точки под током / в замыкании ----
-// Граф точек: рёбра — жилы подков (по текущему g) и пятачки. Путь — поиск в ширину по точкам.
+// ---- подробности сети для рендера и причин: какие подковы, пятачки и точки под током / в искре ----
+// Граф точек: рёбра — подковы (по текущему g) и пятачки. Путь — поиск в ширину по точкам.
 function pointGraph(C, g){
   const adj = C.pts.map(() => []);
   for (let ri = 0; ri < C.n; ri++){ const t = tipsOf(g[ri]), a = C.tipPt[ri][t[0]], b = C.tipPt[ri][t[1]]; adj[a].push({ to: b, ri, from: a }); adj[b].push({ to: a, ri, from: b }); }
-  C.padPts.forEach((pp, pi) => { for (let i = 0; i < pp.length; i++) for (let k = 0; k < pp.length; k++) if (i !== k) adj[pp[i]].push({ to: pp[k], pad: pi }); });
+  C.padPts.forEach((pp, pi) => { for (let i = 0; i < pp.length; i++) for (let k = 0; k < pp.length; k++) if (i !== k) adj[pp[i]].push({ to: pp[k], pad: pi, from: pp[i] }); });
   return adj;
 }
-function wirePath(C, g, from, to){   // путь по жилам и пятачкам (без лампочек): [{ri|pad, from, to}] или null
+function bfs(adj, from){ const dist = new Map([[from, 0]]), q = [from]; for (let qi = 0; qi < q.length; qi++){ const u = q[qi]; for (const e of adj[u]) if (!dist.has(e.to)){ dist.set(e.to, dist.get(u) + 1); q.push(e.to); } } return dist; }
+function wirePath(C, g, from, to){   // путь по подковам и пятачкам: [{ri|pad, from, to}] или null
   const adj = pointGraph(C, g), prev = new Map([[from, null]]), q = [from];
   for (let qi = 0; qi < q.length; qi++){ const u = q[qi]; if (u === to) break; for (const e of adj[u]) if (!prev.has(e.to)){ prev.set(e.to, { u, e }); q.push(e.to); } }
   if (!prev.has(to)) return null;
   const path = []; for (let at = to; prev.get(at); at = prev.get(at).u) path.push(prev.get(at).e); return path.reverse();
 }
-// Ток при победе (и частичном свечении): от + по жилам, через горящие лампочки, до −. Для каждой подковы — порядок (шаг от +),
-// для каждой жилы — с какого конца входит ток.
+// Ток соединённых пар: для каждого горящего цвета — от первого гнезда по сети. У подковы — шаг от гнезда, конец, с которого входит ток, и цвет;
+// у гнезда — шаг, на котором ток дошёл до последнего гнезда пары (тогда пара загорается разом).
 function currentFlow(C, g, res){
-  const adj = pointGraph(C, g), dist = new Map([[C.P, 0]]), q = [C.P];
-  C.lamps.forEach((lp, li) => { if (res.lit & (1 << li)){ adj[lp.a].push({ to: lp.b, lamp: li, from: lp.a }); adj[lp.b].push({ to: lp.a, lamp: li, from: lp.b }); } });
-  for (let qi = 0; qi < q.length; qi++){ const u = q[qi]; for (const e of adj[u]){ if (!dist.has(e.to)){ dist.set(e.to, dist.get(u) + 1); q.push(e.to); } } }
-  const rings = {}, lamps = {};
-  for (let ri = 0; ri < C.n; ri++){ const t = tipsOf(g[ri]), a = C.tipPt[ri][t[0]], b = C.tipPt[ri][t[1]];
-    if (!dist.has(a)) continue;
-    const da = dist.get(a), db = dist.get(b); rings[ri] = { step: Math.min(da, db), fromTip: da <= db ? t[0] : t[1] }; }
-  C.lamps.forEach((lp, li) => { if (res.lit & (1 << li)) lamps[li] = { step: Math.min(dist.get(lp.a), dist.get(lp.b)) }; });
-  const maxStep = Math.max(1, ...Object.values(rings).map(x => x.step + 1), ...Object.values(lamps).map(x => x.step + 1));
-  return { rings, lamps, maxStep, dist };
+  const adj = pointGraph(C, g), rings = {}, socks = {};
+  let maxStep = 1;
+  for (const ci of C.colors){
+    if (!(res.lit & (1 << ci))) continue;
+    const dist = bfs(adj, C.socks[C.colorSocks[ci][0]].pt);
+    for (let ri = 0; ri < C.n; ri++){ const t = tipsOf(g[ri]), a = C.tipPt[ri][t[0]], b = C.tipPt[ri][t[1]];
+      if (!dist.has(a)) continue;
+      const da = dist.get(a), db = dist.get(b); rings[ri] = { step: Math.min(da, db), fromTip: da <= db ? t[0] : t[1], color: ci }; maxStep = Math.max(maxStep, Math.max(da, db)); }
+    const reach = Math.max(1, ...C.colorSocks[ci].map(si => dist.get(C.socks[si].pt)));
+    for (const si of C.colorSocks[ci]) socks[si] = { step: reach, color: ci };
+    maxStep = Math.max(maxStep, reach);
+  }
+  return { rings, socks, maxStep };
 }
-// Что замкнуло: подковы и точки на пути замыкания (для почернения жил, искр и причины).
+// Где искра: подковы и точки на пути между гнёздами разных цветов (для почернения, искр и причины).
 function faultInfo(C, g, res){
-  if (res.kind === 'short'){ const path = wirePath(C, g, C.P, C.M); return { kind: 'short', path, rings: path ? [...new Set(path.filter(e => e.ri !== undefined).map(e => e.ri))] : [] }; }
-  if (res.kind === 'shunt'){ const lp = C.lamps[res.shunt], path = wirePath(C, g, lp.a, lp.b); return { kind: 'shunt', lamp: res.shunt, path, rings: path ? [...new Set(path.filter(e => e.ri !== undefined).map(e => e.ri))] : [] }; }
-  return null;
+  if (res.kind !== 'spark') return null;
+  const [sa, sb] = res.mix, path = wirePath(C, g, C.socks[sa].pt, C.socks[sb].pt);
+  return { kind: 'spark', socks: [sa, sb], colors: [C.socks[sa].color, C.socks[sb].color], path, rings: path ? [...new Set(path.filter(e => e.ri !== undefined).map(e => e.ri))] : [] };
 }
 function listRu(ids){ return ids.length <= 1 ? ids.join('') : ids.slice(0, -1).join(', ') + ' и ' + ids[ids.length - 1]; }
-function lampName(L, li){ return L.lamps.length > 1 ? 'лампочку ' + (li + 1) : 'лампочку'; }
 function failReason(s){
   if (!isFail(s)) return null;
-  const C = s.C, f = faultInfo(C, s.g, s.res), ids = f.rings.map(ri => s.L.rings[ri].id);
-  const by = ids.length ? (ids.length > 1 ? 'по подковам ' : 'по подкове ') + listRu(ids) : 'напрямую';
-  if (f.kind === 'short') return 'Короткое замыкание: плюс соединился с минусом ' + by + ' — в обход лампочки.';
-  return 'Ток обошёл ' + lampName(s.L, f.lamp) + ' ' + by + ': она закорочена.';
+  const f = faultInfo(s.C, s.g, s.res), a = COLORS[f.colors[0]], b = COLORS[f.colors[1]];
+  return a.name[0].toUpperCase() + a.name.slice(1) + ' встретился с ' + b.ins + ' — искра.';
 }
 
-// ---- солвер: поиск в ширину по положениям подков; замыкание — тупик (дальше не идём) ----
+// ---- солвер: поиск в ширину по положениям подков; искра — тупик (дальше не идём) ----
 function solve(s){
   if (isWin(s)) return [];
   if (isFail(s)) return null;
@@ -404,7 +382,7 @@ function solve(s){
   }
   return null;
 }
-// Полный граф уровня: достижимые состояния; good — откуда победа ещё достижима без замыканий.
+// Полный граф уровня: достижимые состояния; good — откуда победа ещё достижима без искр.
 const GRAPH = new WeakMap();
 function graphOf(L){
   let G0 = GRAPH.get(L); if (G0) return G0;
@@ -426,9 +404,9 @@ function graphOf(L){
 }
 function isDead(s){ if (isWin(s)) return false; if (isFail(s)) return true; const G0 = graphOf(s.L), k = stateKey(s); if (G0.seen.has(k)) return !G0.good.has(k); return solve(s) === null; }
 
-// Все положения подков (без замков): сколько побед, замыканий, шунтов.
+// Все положения подков (без замков): сколько побед, искр, прочих.
 function census(L){
-  const C = compile(L), n = C.n, total = Math.pow(CFG.POS, n), g = new Array(n).fill(0), out = { total, win: 0, short: 0, shunt: 0, open: 0 }, r = {};
+  const C = compile(L), n = C.n, total = Math.pow(CFG.POS, n), g = new Array(n).fill(0), out = { total, win: 0, spark: 0, open: 0 }, r = {};
   for (let x = 0; x < total; x++){ let y = x; for (let i = 0; i < n; i++){ g[i] = y % 8; y = (y - g[i]) / 8; } evalCircuit(C, g, r); out[r.kind]++; }
   return out;
 }
@@ -442,24 +420,24 @@ function analyze(li){
 
 // ---- проверка раскладки ----
 function layoutErrors(L){
-  const C = compile(L), out = C.errs.slice(), R = CFG.R, T = CFG.TUBE_R;
+  const C = compile(L), out = C.errs.slice(), R = CFG.R;
   for (let i = 0; i < L.rings.length; i++) for (let k = i + 1; k < L.rings.length; k++){
     const a = ringCenter(L.rings[i]), b = ringCenter(L.rings[k]), d = Math.hypot(a.x - b.x, a.y - b.y);
     if (d < 2 * R - 0.01) out.push('подковы ' + L.rings[i].id + ' и ' + L.rings[k].id + ' налезают (d=' + d.toFixed(2) + ')');
     if (L.rings[i].id === L.rings[k].id) out.push('два раза подкова ' + L.rings[i].id);
   }
   for (const r of L.rings) if (!(r.g >= 0 && r.g < CFG.POS)) out.push('подкова ' + r.id + ': положение ' + r.g);
-  if (C.P === C.M) out.push('+ и − батарейки на одной клемме');
-  C.lamps.forEach((lp, li) => { if (lp.a === lp.b) out.push('лампочка ' + L.lamps[li].id + ': выводы на одной клемме'); });
+  for (const ci of C.colors) if (C.colorSocks[ci].length < 2) out.push('цвет ' + COLORS[ci].name + ': одно гнездо — ему не с чем соединиться');
+  if (!C.colors.length) out.push('нет гнёзд');
   for (const pd of (L.pads || [])) if (pd.tips.length < 2) out.push('пятачок ' + pd.id + ' касается одной точки — он ничего не соединяет');
   const s = createState(-1, L);
-  if (isFail(s)) out.push('замыкание на старте');
-  if (isWin(s)) out.push('цепь замкнута на старте');
+  if (isFail(s)) out.push('искра на старте');
+  if (isWin(s)) out.push('все пары соединены на старте');
   return out;
 }
 
 // ---- боты (PROTO-BASE §6) ----
-// Случайный — любой щелчок, пока не победа или замыкание.
+// Случайный — любой щелчок, пока не победа или искра.
 function randomRun(li, seed, def){
   const rnd = mulberry32(seed); let s = createState(li, def);
   for (let k = 0; k < CFG.RANDOM_MOVES && !isWin(s) && !isFail(s); k++){ const m = legalMoves(s); if (!m.length) break; s = applyMove(s, m[Math.floor(rnd() * m.length)]); }
@@ -471,20 +449,21 @@ function tapRun(li, seed, def){
   for (let k = 0; k < CFG.RANDOM_MOVES && !isWin(s) && !isFail(s); k++){ const m = legalMoves(s).filter(x => !(x & 1)); if (!m.length) break; s = applyMove(s, m[Math.floor(rnd() * m.length)]); }
   return { win: isWin(s), fail: isFail(s), moves: s.moves };
 }
-// Жадный — «соединяет плюс с минусом кратчайшим путём»: лампочку считает просто проводом. Ищет положение подков с наименьшим
-// числом щелчков, где + и − связаны (через лампочки или напрямую — ему всё равно; при равенстве берёт победное),
-// и крутит подковы по очереди (A, B, …) кратчайшей стороной (при равенстве — по часовой). Замкнул — попался.
+// Жадный — «соединяю каждую пару, о чужих цветах не думаю». Ищет положение подков с наименьшим числом щелчков, где каждая пара
+// в одной сети (смешение цветов его не волнует; при равенстве берёт победное), и крутит подковы по очереди (A, B, …)
+// кратчайшей стороной (при равенстве — по часовой). Искра — попался.
 function naiveTarget(C, g0, unl){
   const n = C.n, total = Math.pow(CFG.POS, n), g = new Array(n).fill(0), p = C.par, r = {};
   let best = null, bc = Infinity, bw = false;
   for (let x = 0; x < total; x++){
     let y = x, cost = 0, ok = true;
-    for (let i = 0; i < n; i++){ g[i] = y % 8; y = (y - g[i]) / 8; const d = circDist(g0[i], g[i]); if (d && C.lockLamp[i] >= 0 && !(unl & (1 << i))){ ok = false; break; } cost += d; }
+    for (let i = 0; i < n; i++){ g[i] = y % 8; y = (y - g[i]) / 8; const d = circDist(g0[i], g[i]); if (d && C.lockColor[i] >= 0 && !(unl & (1 << i))){ ok = false; break; } cost += d; }
     if (!ok || cost > bc) continue;
     p.set(C.base);
     for (let ri = 0; ri < n; ri++){ const t = tipsOf(g[ri]); unite(p, C.tipPt[ri][t[0]], C.tipPt[ri][t[1]]); }
-    for (const lp of C.lamps) unite(p, lp.a, lp.b);
-    if (find(p, C.P) !== find(p, C.M)) continue;
+    let all = true;
+    for (const ci of C.colors){ const ss = C.colorSocks[ci], r0 = find(p, C.socks[ss[0]].pt); for (let k = 1; k < ss.length; k++) if (find(p, C.socks[ss[k]].pt) !== r0){ all = false; break; } if (!all) break; }
+    if (!all) continue;
     const win = evalCircuit(C, g, r).kind === 'win';
     if (cost < bc || (win && !bw)){ bc = cost; best = g.slice(); bw = win; }
   }
@@ -515,31 +494,29 @@ function greedyRun(li, def){
 // ===========================================================================
 const NAME = 'zamkni_tsep';
 const VIEW = {
-  CELEBRATE_MS: 1400,         // праздник: вспышка ламп, лучи, фонтан искр, тёплая волна
-  BADGE: 0.5,                 // размер значков + и −                 // визуальные параметры (ядро от них не зависит)
+  CELEBRATE_MS: 1400,         // праздник: вспышка плафонов, лучи, фонтан искр, тёплая волна
   FOV: 30,                     // угол камеры по вертикали, градусы
   TILT: 0.07,                  // камера чуть сверху: видна толщина подков (рад)
-  PAD: 0.55,                   // поля панели вокруг содержимого, мировые ед.
-  TOP_FRAC: 0.17,              // доля высоты кадра сверху под заголовок и подсказку
+  PAD: 0.2,                    // поля панели вокруг содержимого, мировые ед.
+  TOP_FRAC: 0.17,              // доля высоты кадра сверху под заголовок
   PANEL_Z: -0.42,              // лицевая плоскость панели
-  CORE_R: 0.055,               // медная жила внутри стекла
-  CAP_R: 0.085,                // медный наконечник на конце подковы
-  SCREW_D: 0.52,               // диаметр винта-крепления
-  CLAMP_D: 0.4,                // диаметр клеммы
-  LAMP_H: 0.95,                // высота патрона с нитью (модель)
-  BULB_R: 0.36,                // радиус колбы
-  BAT_L: 1.75,                 // длина батарейки
-  BAT_D: 0.5,                  // диаметр батарейки
-  LEAD_R: 0.05,               // толщина вывода (провода)
-  FLOW_HEAD: 0.18,             // яркий фронт тока, доля жилы
-  BURN_MS: 650,                // жила чернеет
+  CAP_R: 0.15,                 // шарик на конце подковы
+  HUB_R: 0.13,                 // ось подковы (минимальная)
+  SOCK_R: 0.3,                 // плафон гнезда: радиус купола
+  SOCK_RIM: 0.36,              // цветное кольцо гнезда на панели
+  FLOW_HEAD: 0.18,             // яркий фронт тока, доля дуги
+  BURN_MS: 650,                // дуга темнеет от искры
   WIN_BANNER_MS: 900,          // от «дзынь» до плашки «Горит!»
+  CLASH_MS: 420,               // токи двух цветов бегут навстречу — и искра
   POOL_SPARKS: 160, POOL_SMOKE: 60, POOL_GLINTS: 220,
   PICK_R: 1.45,                // попадание по подкове: до 1,45 радиуса от центра
   TAP_PX: 10,                  // порог тап/драг
+  DRAG_FOLLOW: 0.55,           // доля угла пальца, на которую подкова отходит от щелчка (остальное — прыжок трещотки на полпути)
   DPR_MAX: 2,
-  BG_TOP: '#3b4357', BG_BOTTOM: '#1d212c', GLASS_TINT: '#eef6ff', COPPER: '#d9773a', GLOW: '#ffd27a', FAULT: '#ff3b2f',
-  PLUS: '#e8333a', MINUS: '#2a3f6e', LAMP_CLAMP: '#3b3f47',
+  BG_TOP: '#3b4357', BG_BOTTOM: '#1d212c', METAL: '#d9884a', FAULT: '#ff3b2f',
+  // цвета пар (порядок — как COLORS в ядре): плафон, свечение, кольцо гнезда
+  PAIR: [{ glass: '#2f7dff', glow: '#7fc0ff', rim: '#1d5fd6' }, { glass: '#ffc21a', glow: '#ffe27a', rim: '#e09a00' },
+    { glass: '#29c95a', glow: '#8cf0a6', rim: '#1a9c43' }, { glass: '#ff4fb3', glow: '#ffa3d9', rim: '#d62f8f' }],
 };
 const T0 = performance.now();
 const T = { off: 0 };
@@ -551,7 +528,7 @@ const PERF = {};
 function mark(name){ PERF[name] = Math.round(performance.now() - T0); log('event', 'perf.' + name, PERF[name] + 'ms'); }
 mark('script');
 
-const SAVE_KEY = NAME + '.v1';
+const SAVE_KEY = NAME + '.v3';           // v0.3 «Цвета»: уровни другие — прогресс v0.1–v0.2 не переносится
 function loadSave(){ try { return JSON.parse(localStorage.getItem(SAVE_KEY)) || {}; } catch (e) { return {}; } }
 function save(){ try { localStorage.setItem(SAVE_KEY, JSON.stringify(G.save)); } catch (e) {} }
 
@@ -633,17 +610,17 @@ function goto(screen){
   ov.classList.add('show');
   if (screen === 'menu'){
     const cur = Math.min(G.save.level, LEVELS.length - 1);
-    card.innerHTML = `<h1 class="logo">Замкни <i>цепь</i></h1><p>Поворачивай подковы на винтах.<br>Проведи ток от плюса через лампочку к минусу — и нигде не закороти.</p>
+    card.innerHTML = `<h1 class="logo">Замкни <i>цепь</i></h1><p>Крути подковы — соедини гнёзда одного цвета.<br>Разные цвета встретятся — искра.</p>
       <button class="primary big" data-act="play">Играть · уровень ${cur + 1}</button>
       <div class="levels">${LEVELS.map((L, i) => `<button class="lv${G.save.done[i] ? ' done' : ''}${i === cur ? ' cur' : ''}" data-act="lv" data-i="${i}">${i + 1}</button>`).join('')}</div>
       <button data-act="help">Как играть</button>`;
   }
   if (screen === 'help') card.innerHTML = `<h2>Как играть</h2><ul class="rules">
       <li><b>Крути подкову пальцем</b> — щелчками в любую сторону. <b>Тап</b> — щелчок по часовой.</li>
-      <li>В стекле — медная жила. Ток идёт по подкове от конца до конца и дальше — в то, чего коснулся конец: клемму, медный пятачок, соседнюю подкову.</li>
-      <li>Проведи ток от <b>+</b> батарейки через лампочку к <b>−</b>. Лампочек несколько — гореть должны все.</li>
-      <li><b>Короткое замыкание:</b> плюс соединился с минусом в обход лампочки — искры, дым. Отмена бесплатна.</li>
-      <li>Пока держишь палец на подкове — видно, куда она встанет и что замкнётся.</li></ul>
+      <li>Ток идёт по подкове от конца до конца и дальше — в то, чего коснулся конец: гнездо, соседнюю подкову, медный пятачок.</li>
+      <li><b>Соедини гнёзда одного цвета</b> — плафоны загорятся. Цель — все пары.</li>
+      <li><b>Искра:</b> разные цвета встретились в одной цепочке. Отмена бесплатна.</li>
+      <li>Пока держишь палец на подкове — видно, куда она встанет и что загорится.</li></ul>
       <button class="primary" data-act="menu">Понятно</button>`;
 }
 $('card').addEventListener('click', (e) => {
@@ -661,7 +638,7 @@ function routeHash(){
   if (m){ startLevel(Math.max(0, Math.min(LEVELS.length - 1, +m[1] - 1))); return true; }
   if (h === 'game'){ startLevel(Math.min(G.save.level, LEVELS.length - 1)); return true; }
   if (h === 'win'){ startLevel(0); applyPath(solve(G.s) || [], true); return true; }               // эталон: решённый уровень 1
-  if (h === 'fail'){ startLevel(2); applyPath(greedyRun(2).path, true); return true; }             // эталон: замыкание на уровне 3
+  if (h === 'fail'){ startLevel(2); applyPath(greedyRun(2).path, true); return true; }             // эталон: искра на уровне 3
   if (['menu', 'help'].includes(h)){ goto(h); return true; }
   return false;
 }
@@ -676,15 +653,20 @@ function hud(){
   $('btn-mute').classList.toggle('off', !!G.save.muted);
   $('btn-undo').disabled = !G.s || !G.s.hist.length;
 }
-function showDead(reason, kind){
-  $('dead-title').textContent = kind === 'shunt' ? 'Лампочка закорочена' : 'Короткое замыкание';
-  $('dead-text').textContent = ' ' + reason.replace(/^Короткое замыкание: (.)/, (m, c) => c.toUpperCase()); $('dead').classList.add('show'); $('btn-undo').classList.add('pulse');
-  log('event', 'fail', kind + ': ' + reason); buzz([40, 50, 30]); hud();
+// Гнездо картинкой для плашек: цветной круг с белой формой (форма дублирует цвет, §9).
+const SHAPE_SVG = { circle: '<circle cx="12" cy="12" r="4.6" fill="#fff"/>', tri: '<path d="M12 6.5l5.4 9.5H6.6z" fill="#fff"/>',
+  square: '<rect x="7.6" y="7.6" width="8.8" height="8.8" fill="#fff"/>', diamond: '<path d="M12 6l6 6-6 6-6-6z" fill="#fff"/>' };
+function sockSvg(ci){ const P = VIEW.PAIR[ci]; return '<svg class="sock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.5" fill="' + P.glass + '" stroke="' + P.rim + '" stroke-width="2.2"/>' + SHAPE_SVG[COLORS[ci].shape] + '</svg>'; }
+function showDead(reason, s){
+  const f = faultInfo(s.C, s.g, s.res);
+  $('dead-a').innerHTML = sockSvg(f.colors[0]); $('dead-b').innerHTML = sockSvg(f.colors[1]);
+  $('dead').classList.add('show'); $('btn-undo').classList.add('pulse');
+  log('event', 'fail', s.res.kind + ': ' + reason); buzz([40, 50, 30]); hud();
 }
 function hideBanners(){ $('dead').classList.remove('show'); $('won').classList.remove('show'); $('btn-undo').classList.remove('pulse'); }
 
 function startLevel(li){
-  G.s = createState(li); G.press = null; G.hint = null; G.pending = 0; G.won = 0;
+  G.s = createState(li); G.press = null; G.hint = null; G.pending = 0; G.won = 0; G.sparkAt = 0;
   hideBanners(); Snd.humOff(); G.celebrate = 0;
   G.shown = showState(G.s, now() - 10000);
   G.par = G.s.L.par !== undefined ? G.s.L.par : (solve(G.s) || []).length;     // большой уровень: par записан в уровне (проверяет sim)
@@ -694,11 +676,24 @@ function startLevel(li){
   if (li === 0 && !G.save.done[0]) setTimeout(() => { if (G.s && G.s.li === 0 && !G.s.moves) G.hint = { m: 0, until: now() + 4200 }; }, 900);
 }
 // Что показать для состояния: ток (если что-то горит) или повреждение. t0 — когда итог начал проигрываться.
-function showState(s, t0){
-  const res = s.res, out = { res, g: s.g.slice(), t0, flow: null, fault: null };
-  if (isFailKind(res.kind)) out.fault = faultInfo(s.C, s.g, res);
+function showState(s, t0, turned){
+  const res = s.res, out = { res, g: s.g.slice(), t0, flow: null, fault: null, clash: null };
+  if (isFailKind(res.kind)){ out.fault = faultInfo(s.C, s.g, res); out.clash = clashOf(s, out.fault, turned === undefined ? -1 : turned); }
   else if (res.lit) out.flow = currentFlow(s.C, s.g, res);
   return out;
+}
+// Встреча токов перед искрой: по пути между гнёздами разных цветов каждый цвет бежит от своего гнезда к точке встречи.
+// Точка встречи — ближний к гнезду второго цвета конец подковы, которую только что повернули (иначе середина пути).
+function clashOf(s, f, turned){
+  const path = f.path || [], n = path.length; if (!n) return null;
+  let m = Math.round(n / 2); const k = path.findIndex(e => e.ri === turned); if (k >= 0) m = k + 1 > n - 1 ? k : k + 1;
+  m = Math.max(1, Math.min(n - 1, m)); if (n === 1) m = 1;
+  const rings = {};
+  path.forEach((e, i) => { if (e.ri === undefined) return; const tips = tipsOf(s.g[e.ri]), A = i < m;
+    const fromPt = A ? e.from : e.to, fromTip = tips.find(t => s.C.tipPt[e.ri][t] === fromPt);
+    rings[e.ri] = { color: A ? f.colors[0] : f.colors[1], fromTip, step: A ? i : n - 1 - i, of: A ? m : n - m }; });
+  const meet = path[m - 1] ? path[m - 1].to : path[0].from;
+  return { rings, meet: s.C.pts[meet] };
 }
 
 // ===========================================================================
@@ -706,7 +701,7 @@ function showState(s, t0){
 // ===========================================================================
 let R3 = null;
 const GLB = {};
-const MODEL_IDS = ['battery', 'lamp', 'screw', 'clamp', 'panel', 'lock'];
+const MODEL_IDS = ['panel', 'lock'];
 
 const SH_VERT = `
 varying vec3 vW; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
@@ -715,26 +710,8 @@ void main(){
   vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - w.xyz); vUv = uv;
   gl_Position = projectionMatrix * viewMatrix * w;
 }`;
-// Стекло подковы: прозрачная основа, френель по краю, блик и полоса отражения; uSmoke — закопчённое после замыкания.
-const SH_GLASS = `
-uniform vec3 uTint; uniform vec3 uLight; uniform float uAlpha; uniform float uBack; uniform float uSmoke; uniform vec3 uGlow; uniform float uWarm;
-varying vec3 vW; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
-void main(){
-  vec3 N = normalize(vN); if (!gl_FrontFacing) N = -N;
-  float ndv = clamp(abs(dot(N, vV)), 0.0, 1.0), fr = pow(1.0 - ndv, 2.4);
-  vec3 L = normalize(uLight);
-  float sp = pow(max(dot(N, normalize(L + vV)), 0.0), 140.0) * 1.5;
-  vec3 Rf = reflect(-vV, N);
-  float strip = smoothstep(0.78, 0.9, Rf.y * 0.85 - Rf.x * 0.4);
-  float a = uAlpha + fr * 0.55 + sp + strip * 0.45;
-  vec3 c = mix(uTint, vec3(1.0), clamp(fr * 0.7 + sp + strip, 0.0, 1.0));
-  c = mix(c, uGlow, uWarm * 0.35 * (0.4 + fr));
-  c = mix(c, vec3(0.16, 0.14, 0.13), uSmoke * 0.75); a = mix(a, max(a, 0.55), uSmoke);
-  gl_FragColor = vec4(c, clamp(a, 0.0, 0.95) * (uBack > 0.5 ? 0.45 : 1.0));
-  #include <colorspace_fragment>
-}`;
-// Медная жила: uv.x — вдоль дуги (0 у конца g−1, 1 у конца g+1). Ток входит с конца uDir и бежит до uHead;
-// за фронтом — бегущие импульсы света. uBurn — почерневшая жила. uGhost: 1 — превью тока (пунктир), 2 — превью замыкания (красный).
+// Металлическая подкова: uv.x — вдоль дуги (0 у конца g−1, 1 у конца g+1). Ток цвета uGlow входит с конца uDir и бежит до uHead;
+// за фронтом — бегущие импульсы света. uBurn — потемневшая от искры дуга. uGhost: 1 — превью тока (пунктир), 2 — превью искры (красный).
 const SH_CORE = `
 uniform vec3 uCopper; uniform vec3 uGlow; uniform vec3 uFault; uniform vec3 uLight;
 uniform float uOn; uniform float uHead; uniform float uDir; uniform float uBurn; uniform float uTime; uniform float uGhost; uniform float uWin;
@@ -742,11 +719,13 @@ varying vec3 vW; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
 void main(){
   vec3 N = normalize(vN), L = normalize(uLight);
   float ndv = clamp(dot(N, vV), 0.0, 1.0), lam = 0.45 + 0.55 * clamp(dot(N, L), 0.0, 1.0);
-  vec3 c = uCopper * lam * (0.7 + 0.5 * ndv) + vec3(1.0, 0.85, 0.7) * pow(max(dot(N, normalize(L + vV)), 0.0), 40.0) * 0.8;
+  vec3 Rf = reflect(-vV, N);
+  float env = smoothstep(-0.2, 0.9, Rf.y) * 0.5 + 0.15;
+  vec3 c = uCopper * lam * (0.55 + 0.5 * ndv) + uCopper * env * 0.45 + vec3(1.0, 0.92, 0.8) * pow(max(dot(N, normalize(L + vV)), 0.0), 50.0) * 0.9;
   float u = uDir > 0.0 ? vUv.x : 1.0 - vUv.x;
   float lit = uOn * step(u, uHead);
   float run = 0.5 + 0.5 * sin(u * 26.0 - uTime * (9.0 + 9.0 * uWin));
-  c = mix(c, uGlow * (1.15 + 0.45 * run + 0.6 * uWin * pow(run, 4.0)), lit * 0.9);
+  c = mix(c, uGlow * (1.05 + 0.45 * run + 0.6 * uWin * pow(run, 4.0)), lit * 0.92);
   c += uGlow * uOn * smoothstep(0.12, 0.0, abs(u - uHead)) * step(uHead, 0.995) * 1.6;
   if (uGhost > 0.5){
     float d = fract(u * 7.0 - uTime * 2.2);
@@ -759,7 +738,7 @@ void main(){
   gl_FragColor = vec4(c, 1.0);
   #include <colorspace_fragment>
 }`;
-// Колба лампочки: стекло, которое разгорается тёплым светом (uGlow 0..1); середина ярче.
+// Плафон гнезда: цветное стекло, которое разгорается своим цветом (uGlow 0..1); середина ярче.
 const SH_BULB = `
 uniform vec3 uTint; uniform vec3 uWarm; uniform vec3 uLight; uniform float uGlow; uniform float uTime;
 varying vec3 vW; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
@@ -768,10 +747,11 @@ void main(){
   float ndv = clamp(abs(dot(N, vV)), 0.0, 1.0), fr = pow(1.0 - ndv, 2.2);
   float sp = pow(max(dot(N, normalize(normalize(uLight) + vV)), 0.0), 120.0) * 1.4;
   float fl = 1.0 + 0.04 * sin(uTime * 23.0) + 0.03 * sin(uTime * 7.0);
-  vec3 c = mix(uTint, vec3(1.0), clamp(fr * 0.6 + sp, 0.0, 1.0));
-  c = mix(c, uWarm * (1.2 + 0.6 * ndv) * fl, uGlow * (0.55 + 0.45 * ndv));
-  float a = 0.1 + fr * 0.45 + sp + uGlow * (0.35 + 0.4 * ndv);
-  gl_FragColor = vec4(c, clamp(a, 0.0, 0.97));
+  float lam = 0.55 + 0.45 * clamp(dot(N, normalize(uLight)), 0.0, 1.0);
+  vec3 c = mix(uTint * lam * 0.8, vec3(1.0), clamp(fr * 0.35 + sp, 0.0, 1.0));
+  c = mix(c, uWarm * (1.15 + 0.55 * ndv) * fl, uGlow * (0.6 + 0.4 * ndv));
+  float a = 0.8 + fr * 0.15 + sp;
+  gl_FragColor = vec4(c, clamp(a, 0.0, 0.98));
   #include <colorspace_fragment>
 }`;
 const SH_BG_VERT = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
@@ -789,6 +769,7 @@ void main(){
 const COLD = /[?&]cold=1/.test(location.search) ? '\n// cold ' + Date.now() + '\n' : '';
 function lin(hex){ return new THREE.Color(hex); }
 const LIGHT_DIR = new THREE.Vector3(-0.45, 0.8, 0.6);
+const PAIR_GLOW = VIEW.PAIR.map(P => new THREE.Color(P.glow));
 const STEP = Math.PI / 4;
 const ARC0 = 3 * Math.PI / 4;           // торус-дуга начинается здесь: при g = 0 разрыв смотрит вверх, uv.x = 0 у конца g−1
 
@@ -805,6 +786,12 @@ function radialTexture(kind){          // мягкие пятна: тень, о�
   if (kind === 'ring'){ x.filter = 'blur(4px)'; x.strokeStyle = 'rgba(255,255,255,0.9)'; x.lineWidth = 12; x.beginPath(); x.arc(64, 64, 46, 0, Math.PI * 2); x.stroke(); }
   if (kind === 'rays'){ x.translate(64, 64); for (let i = 0; i < 12; i++){ const g = x.createLinearGradient(0, 0, 62, 0); g.addColorStop(0, 'rgba(255,236,170,0.9)'); g.addColorStop(1, 'rgba(255,200,90,0)');
     x.fillStyle = g; x.beginPath(); x.moveTo(0, 0); x.lineTo(62, -7); x.lineTo(62, 7); x.closePath(); x.fill(); x.rotate(Math.PI / 6); } }
+  if (kind === 'arrow'){   // изогнутая стрелка по часовой (против — зеркалом): подсказка картинкой, куда крутить
+    x.lineCap = 'round'; x.lineJoin = 'round';
+    for (const [w, c] of [[16, 'rgba(40,24,0,0.55)'], [9, '#fff3a0']]){ x.strokeStyle = c; x.fillStyle = c; x.lineWidth = w;
+      x.beginPath(); x.arc(64, 64, 44, -Math.PI * 0.95, -Math.PI * 0.15); x.stroke();
+      const ax = 64 + 44 * Math.cos(-Math.PI * 0.15), ay = 64 + 44 * Math.sin(-Math.PI * 0.15);
+      x.beginPath(); x.moveTo(ax + 16, ay - 6); x.lineTo(ax - 2, ay + 18); x.lineTo(ax - 14, ay - 12); x.closePath(); x.fill(); x.stroke(); } }
   if (kind === 'dot'){ x.fillStyle = '#ffffff'; x.beginPath(); x.arc(64, 64, 56, 0, Math.PI * 2); x.fill(); }
   if (kind === 'zap'){ x.translate(64, 64); x.scale(4.2, 4.2); x.translate(-12, -12); const p = new Path2D('M13 2L4 14h7l-1 8 9-12h-7z');
     x.lineJoin = 'round'; x.lineWidth = 2.2; x.strokeStyle = '#7a0a0a'; x.fillStyle = '#ff3b2f'; x.fill(p); x.stroke(p); }
@@ -844,22 +831,18 @@ function initRenderer(){
     uniforms: { uTop: { value: lin(VIEW.BG_TOP) }, uBot: { value: lin(VIEW.BG_BOTTOM) } } }));
   bg.position.z = -6; bg.renderOrder = -10; scene.add(bg);
   const geo = {
-    glass: new THREE.TorusGeometry(CFG.R, CFG.TUBE_R, 20, 96, 1.5 * Math.PI),
-    core: new THREE.TorusGeometry(CFG.R, VIEW.CORE_R, 10, 120, 1.5 * Math.PI),
-    cap: new THREE.CylinderGeometry(CFG.TUBE_R * 0.92, CFG.TUBE_R * 0.92, 0.09, 20),
-    capTip: new THREE.SphereGeometry(VIEW.CAP_R, 16, 10),
-    spoke: new THREE.CylinderGeometry(0.035, 0.035, 1, 8),
-    hub: new THREE.CylinderGeometry(0.2, 0.2, 0.06, 28),
+    arc: new THREE.TorusGeometry(CFG.R, CFG.TUBE_R, 16, 120, 1.5 * Math.PI),
+    capTip: new THREE.SphereGeometry(VIEW.CAP_R, 18, 12),
+    hub: new THREE.CylinderGeometry(VIEW.HUB_R, VIEW.HUB_R, 0.08, 28),
     disk: new THREE.CircleGeometry(1, 28),
     plane: new THREE.PlaneGeometry(1, 1),
     sphere: new THREE.IcosahedronGeometry(1, 1),
-    bulb: bulbGeometry(),
+    dome: new THREE.SphereGeometry(VIEW.SOCK_R, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2),
+    rim: new THREE.TorusGeometry(VIEW.SOCK_RIM - 0.05, 0.05, 10, 40),
   };
-  const glassU = (back) => ({ uTint: { value: lin(VIEW.GLASS_TINT) }, uLight: { value: LIGHT_DIR }, uAlpha: { value: 0.06 }, uBack: { value: back ? 1 : 0 },
-    uSmoke: { value: 0 }, uGlow: { value: lin(VIEW.GLOW) }, uWarm: { value: 0 } });
   const mat = {
-    glassU,
-    copper: new THREE.MeshStandardMaterial({ color: lin(VIEW.COPPER), metalness: 0.85, roughness: 0.3 }),
+    metal: new THREE.MeshStandardMaterial({ color: lin(VIEW.METAL), metalness: 0.9, roughness: 0.28 }),
+    hub: new THREE.MeshStandardMaterial({ color: 0x2a2f3a, metalness: 0.6, roughness: 0.4 }),
     brass: new THREE.MeshStandardMaterial({ color: 0xd8a640, metalness: 0.85, roughness: 0.3 }),
     pad: new THREE.MeshStandardMaterial({ color: 0xb8582a, metalness: 0.65, roughness: 0.45, polygonOffset: true, polygonOffsetFactor: -1 }),
     ghostArc: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false }),
@@ -868,18 +851,17 @@ function initRenderer(){
     pool: new THREE.MeshBasicMaterial({ map: radialTexture('pool'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
     scorch: new THREE.MeshBasicMaterial({ map: radialTexture('scorch'), transparent: true, depthWrite: false }),
     hintRing: new THREE.MeshBasicMaterial({ map: radialTexture('ring'), transparent: true, depthWrite: false, color: 0xfff3a0 }),
+    hintArrow: new THREE.MeshBasicMaterial({ map: radialTexture('arrow'), transparent: true, depthWrite: false, depthTest: false }),
     zap: new THREE.MeshBasicMaterial({ map: radialTexture('zap'), transparent: true, depthTest: false }),
     rays: new THREE.MeshBasicMaterial({ map: radialTexture('rays'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
     contact: new THREE.MeshBasicMaterial({ map: radialTexture('ring'), transparent: true, depthWrite: false, color: 0xfff1b0, blending: THREE.AdditiveBlending }),
     rivet: new THREE.MeshStandardMaterial({ color: 0xc8703c, metalness: 0.75, roughness: 0.35 }),
     hole: new THREE.MeshBasicMaterial({ color: 0x0e1420, transparent: true, opacity: 0.55, depthWrite: false }),
-    ringGlow: { p: new THREE.MeshBasicMaterial({ map: radialTexture('halo'), transparent: true, depthWrite: false, color: 0xff2a2a, blending: THREE.AdditiveBlending }),
-      m: new THREE.MeshBasicMaterial({ map: radialTexture('halo'), transparent: true, depthWrite: false, color: 0x3d8bff, blending: THREE.AdditiveBlending }) },
     wash: new THREE.MeshBasicMaterial({ color: 0xffd98a, transparent: true, opacity: 0, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }),
     spark: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
     smoke: new THREE.MeshBasicMaterial({ color: 0x4a4a4e, transparent: true, opacity: 0.42, depthWrite: false }),
-    lead: { p: new THREE.MeshStandardMaterial({ color: 0xd8333a, roughness: 0.45 }), m: new THREE.MeshStandardMaterial({ color: 0x2b3550, roughness: 0.45 }),
-      a: new THREE.MeshStandardMaterial({ color: 0x8a8f9a, roughness: 0.45 }), b: new THREE.MeshStandardMaterial({ color: 0x8a8f9a, roughness: 0.45 }) },
+    rim: VIEW.PAIR.map(P => new THREE.MeshStandardMaterial({ color: lin(P.rim), metalness: 0.3, roughness: 0.35 })),
+    well: new THREE.MeshStandardMaterial({ color: 0x151a24, roughness: 0.6 }),
   };
   const sparks = new THREE.InstancedMesh(geo.sphere, mat.spark, VIEW.POOL_SPARKS); sparks.renderOrder = 9; sparks.count = 0; sparks.frustumCulled = false;
   sparks.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(VIEW.POOL_SPARKS * 3).fill(1), 3);
@@ -890,27 +872,15 @@ function initRenderer(){
   R3 = { renderer, scene, camera, bg, geo, mat, sparks, smoke, glints, parts: [], level: null, dpr: Math.min(window.devicePixelRatio || 1, VIEW.DPR_MAX), frames: [] };
   mark('gl');
 }
-// Колба: груша вращения (лампа накаливания), низ — горлышко под патрон.
-function bulbGeometry(){
-  const pts = [], R = VIEW.BULB_R;
-  for (let i = 0; i <= 24; i++){ const t = i / 24, a = -Math.PI / 2 + t * Math.PI;   // сфера сверху
-    pts.push(new THREE.Vector2(Math.max(0.001, Math.cos(a) * R), R * 0.9 + Math.sin(a) * R)); }
-  pts.reverse();
-  const neck = [new THREE.Vector2(R * 0.98, R * 0.75), new THREE.Vector2(R * 0.78, R * 0.25), new THREE.Vector2(R * 0.52, 0.02), new THREE.Vector2(R * 0.5, 0)];
-  const all = pts.filter(p => p.y >= R * 0.8).concat(neck);
-  return new THREE.LatheGeometry(all.sort((a, b) => b.y - a.y), 32);
-}
 function coreMaterial(){
   return new THREE.ShaderMaterial({ vertexShader: SH_VERT, fragmentShader: SH_CORE + COLD,
-    uniforms: { uCopper: { value: lin(VIEW.COPPER) }, uGlow: { value: lin(VIEW.GLOW) }, uFault: { value: lin(VIEW.FAULT) }, uLight: { value: LIGHT_DIR },
+    uniforms: { uCopper: { value: lin(VIEW.METAL) }, uGlow: { value: lin(VIEW.PAIR[0].glow) }, uFault: { value: lin(VIEW.FAULT) }, uLight: { value: LIGHT_DIR },
       uOn: { value: 0 }, uHead: { value: 0 }, uDir: { value: 1 }, uBurn: { value: 0 }, uTime: { value: 0 }, uGhost: { value: 0 }, uWin: { value: 0 } } });
 }
-function glassMaterial(back){
-  return new THREE.ShaderMaterial({ vertexShader: SH_VERT, fragmentShader: SH_GLASS + COLD, uniforms: R3.mat.glassU(back), transparent: true, depthWrite: false, side: back ? THREE.BackSide : THREE.FrontSide });
-}
-function bulbMaterial(){
-  return new THREE.ShaderMaterial({ vertexShader: SH_VERT, fragmentShader: SH_BULB + COLD, transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    uniforms: { uTint: { value: lin('#f4f8ff') }, uWarm: { value: lin('#ffd98a') }, uLight: { value: LIGHT_DIR }, uGlow: { value: 0 }, uTime: { value: 0 } } });
+function domeMaterial(ci){
+  const P = VIEW.PAIR[ci];
+  return new THREE.ShaderMaterial({ vertexShader: SH_VERT, fragmentShader: SH_BULB + COLD, transparent: true, depthWrite: false,
+    uniforms: { uTint: { value: lin(P.glass) }, uWarm: { value: lin(P.glow) }, uLight: { value: LIGHT_DIR }, uGlow: { value: 0 }, uTime: { value: 0 } } });
 }
 
 // --- GLB-загрузчик (минимальный glTF 2.0: меши, PBR-материалы, текстуры, иерархия). Взят из «Клапанов». ---
@@ -995,64 +965,34 @@ async function loadModels(){
   }));
   mark('glb');
 }
-// Перекраска красного пластика модели клеммы: красное (r заметно больше g и b) → цвет роли, яркость сохраняется. Медь и латунь не трогаются.
-function tintRed(model, hex, key){
-  const tint = lin(hex);
-  model.traverse(o => { if (!o.isMesh) return; o.material = o.material.clone();
-    o.material.onBeforeCompile = (sh) => { sh.uniforms.uTint = { value: tint };
-      sh.fragmentShader = 'uniform vec3 uTint;\n' + sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n{ vec3 d = diffuseColor.rgb; float red = smoothstep(0.08, 0.25, d.r - max(d.g, d.b) * 1.15) * step(d.g, 0.45); float l = dot(d, vec3(0.6, 0.3, 0.1)); diffuseColor.rgb = mix(d, uTint * (0.5 + 1.6 * l), red); }'); };
-    o.material.customProgramCacheKey = () => 'tintRed'; });
-}
-
 // --- построители деталей: модель Tripo, иначе — кодом ---
-function makeScrew(){
-  if (GLB.screw){ const g = fitModel(GLB.screw, VIEW.SCREW_D, 'x'); return g; }
-  const g = new THREE.Group(), m = new THREE.Mesh(R3.geo.sphere, R3.mat.brass); m.scale.set(VIEW.SCREW_D / 2, VIEW.SCREW_D / 2, 0.12); g.add(m); return g;
-}
-function makeClamp(role){
-  const hex = role === 'p' ? VIEW.PLUS : role === 'm' ? VIEW.MINUS : VIEW.LAMP_CLAMP;
-  if (GLB.clamp){ const g = fitModel(GLB.clamp, VIEW.CLAMP_D, 'x'); if (role !== 'p') tintRed(g, hex); return g; }
-  const g = new THREE.Group(), m = new THREE.Mesh(new THREE.CylinderGeometry(VIEW.CLAMP_D / 2, VIEW.CLAMP_D / 2, 0.1, 24), new THREE.MeshStandardMaterial({ color: lin(hex), roughness: 0.4 }));
-  m.rotation.x = Math.PI / 2; m.userData.ownGeo = true; g.add(m);
-  const n = new THREE.Mesh(R3.geo.sphere, R3.mat.brass); n.scale.set(0.09, 0.09, 0.09); n.position.z = 0.1; g.add(n); return g;
-}
-function makeBattery(){
-  if (GLB.battery){ const g = fitModel(GLB.battery, VIEW.BAT_L, 'x'), sz = g.userData.size; g.children[0].scale.y *= VIEW.BAT_D / sz.y; g.children[0].scale.z *= VIEW.BAT_D / sz.z; return g; }
-  const g = new THREE.Group(), m = new THREE.Mesh(new THREE.CylinderGeometry(VIEW.BAT_D / 2, VIEW.BAT_D / 2, VIEW.BAT_L * 0.92, 24), new THREE.MeshStandardMaterial({ color: 0x19a37a, roughness: 0.35 }));
-  m.rotation.z = Math.PI / 2; m.userData.ownGeo = true; g.add(m); return g;
-}
-function makeLampBase(){
-  if (GLB.lamp) return fitModel(GLB.lamp, VIEW.LAMP_H, 'y', true);
-  const g = new THREE.Group(), b = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.38, 0.22, 24), new THREE.MeshStandardMaterial({ color: 0x7a3d1c, roughness: 0.5 }));
-  b.position.y = 0.11; b.userData.ownGeo = true; g.add(b);
-  const s = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.3, 20), R3.mat.brass); s.position.y = 0.37; s.userData.ownGeo = true; g.add(s); return g;
-}
 function makeLock(){
   if (GLB.lock) return fitModel(GLB.lock, 0.42, 'y');
   const g = new THREE.Group(), b = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.24, 0.12), R3.mat.brass); b.userData.ownGeo = true; g.add(b); return g;
 }
-function badge(sym, bg, fg, size){
-  const m = new THREE.Mesh(R3.geo.plane, new THREE.MeshBasicMaterial({ map: badgeTexture(sym, bg, fg || '#ffffff'), transparent: true, depthWrite: false }));
+// Значок формы цвета (круг, треугольник, квадрат, ромб): форма дублирует цвет (§9). Белый на тёмной подложке гнезда.
+function shapeTexture(shape){
+  const k = 'shape' + shape; if (MISC_TEX[k]) return MISC_TEX[k];
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128; const x = cv.getContext('2d');
+  x.fillStyle = 'rgba(255,255,255,0.95)'; x.beginPath();
+  if (shape === 'circle') x.arc(64, 64, 30, 0, Math.PI * 2);
+  if (shape === 'tri'){ x.moveTo(64, 28); x.lineTo(100, 92); x.lineTo(28, 92); x.closePath(); }
+  if (shape === 'square') x.rect(36, 36, 56, 56);
+  if (shape === 'diamond'){ x.moveTo(64, 24); x.lineTo(104, 64); x.lineTo(64, 104); x.lineTo(24, 64); x.closePath(); }
+  x.fill();
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return (MISC_TEX[k] = t);
+}
+function badge(tex, size){
+  const m = new THREE.Mesh(R3.geo.plane, new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
   m.userData.ownMat = true; m.scale.setScalar(size || 0.3); m.renderOrder = 7; return m;
 }
 
-// --- раскладка: где стоят корпуса батарейки и лампочек (из уровня или по клеммам) ---
+// --- поле: прямоугольник подков и гнёзд ---
 function fieldBox(L, Cc){
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const r of L.rings){ const c = ringCenter(r), e = CFG.R + CFG.TUBE_R; x0 = Math.min(x0, c.x - e); x1 = Math.max(x1, c.x + e); y0 = Math.min(y0, c.y - e); y1 = Math.max(y1, c.y + e); }
-  for (const p of Cc.pts) if (p.node){ x0 = Math.min(x0, p.x - 0.3); x1 = Math.max(x1, p.x + 0.3); }
+  for (const S of Cc.socks){ const p = Cc.pts[S.pt], e = VIEW.SOCK_RIM + 0.05; x0 = Math.min(x0, p.x - e); x1 = Math.max(x1, p.x + e); y0 = Math.min(y0, p.y - e); y1 = Math.max(y1, p.y + e); }
   return { x0, x1, y0, y1 };
-}
-function placeComponents(L, Cc){
-  const fb = fieldBox(L, Cc), P = Cc.pts[Cc.P], M = Cc.pts[Cc.M];
-  const vert = Math.abs(P.y - M.y) > Math.abs(P.x - M.x);
-  const bat = { x: L.bat.x !== undefined ? L.bat.x : (P.x + M.x) / 2, y: L.bat.y !== undefined ? L.bat.y : fb.y0 - 0.62, plusRight: P.x >= M.x, vert, plusUp: P.y >= M.y };
-  bat.ang = vert ? (bat.plusUp ? Math.PI / 2 : -Math.PI / 2) : (bat.plusRight ? 0 : Math.PI);   // куда смотрит + (модель: + справа)
-  const lamps = L.lamps.map((lp, li) => {
-    const a = Cc.pts[Cc.lamps[li].a], b = Cc.pts[Cc.lamps[li].b], mx = (a.x + b.x) / 2;
-    return { x: lp.x !== undefined ? lp.x : mx, y: lp.y !== undefined ? lp.y : fb.y1 + 0.3, aLeft: a.x <= b.x };
-  });
-  return { fb, bat, lamps };
 }
 
 // --- сборка уровня ---
@@ -1066,137 +1006,73 @@ function buildLevel(L, noWarm){
   if (!R3) return;
   disposeLevel();
   const Cc = compile(L), PZ = VIEW.PANEL_Z;
-  const root = new THREE.Group(), lv = { L, Cc, root, rings: [], lamps: [], clamps: [], scorch: [], flashes: [] };
+  const root = new THREE.Group(), lv = { L, Cc, root, rings: [], socks: [], scorch: [], flashes: [] };
   const own = (m) => { m.userData.ownMat = true; return m; };
   const gs = G.s ? G.s.g : L.rings.map(r => r.g);
-  const lay = placeComponents(L, Cc); lv.lay = lay;
-  // подковы: стекло-дуга, медная жила, медные наконечники, спицы к винту, винт; поворотная часть — rot
+  // подковы: голая металлическая дуга с шариками на концах и минимальная ось; поворотная часть — rot
   L.rings.forEach((r, ri) => {
     const c = ringCenter(r), g = new THREE.Group(); g.position.set(c.x, c.y, 0);
     const rot = new THREE.Group(); g.add(rot);
     const arc = new THREE.Group(); arc.rotation.z = ARC0; rot.add(arc);
-    const core = own(new THREE.Mesh(R3.geo.core, coreMaterial())); core.renderOrder = 1; arc.add(core);
-    const back = own(new THREE.Mesh(R3.geo.glass, glassMaterial(true))); back.renderOrder = 2; arc.add(back);
-    const front = own(new THREE.Mesh(R3.geo.glass, glassMaterial(false))); front.renderOrder = 3; arc.add(front);
-    for (const a of [0, 1.5 * Math.PI]){                 // медные наконечники открытых концов
-      const cap = new THREE.Mesh(R3.geo.cap, R3.mat.copper); cap.position.set(Math.cos(a) * CFG.R, Math.sin(a) * CFG.R, 0);
-      cap.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-Math.sin(a), Math.cos(a), 0)); arc.add(cap);
-      const tip = new THREE.Mesh(R3.geo.capTip, R3.mat.copper); tip.position.set(Math.cos(a) * CFG.R, Math.sin(a) * CFG.R, -0.06); arc.add(tip);
+    const core = own(new THREE.Mesh(R3.geo.arc, coreMaterial())); core.renderOrder = 1; arc.add(core);
+    for (const a of [0, 1.5 * Math.PI]){
+      const tip = new THREE.Mesh(R3.geo.capTip, R3.mat.metal); tip.position.set(Math.cos(a) * CFG.R, Math.sin(a) * CFG.R, 0); arc.add(tip);
     }
-    for (const a of [0.3 * Math.PI, 0.75 * Math.PI, 1.2 * Math.PI]){     // спицы от ступицы к дуге (без тока)
-      const sp = new THREE.Mesh(R3.geo.spoke, R3.mat.brass), len = CFG.R - CFG.TUBE_R - 0.12;
-      sp.scale.set(1, len, 1); sp.position.set(Math.cos(a) * (0.14 + len / 2), Math.sin(a) * (0.14 + len / 2), -0.05); sp.rotation.z = a - Math.PI / 2; arc.add(sp);
-    }
-    const hub = new THREE.Mesh(R3.geo.hub, R3.mat.brass); hub.rotation.x = Math.PI / 2; hub.position.z = -0.06; rot.add(hub);
-    const screw = makeScrew(); screw.position.z = 0.02; g.add(screw);
-    const shadow = new THREE.Mesh(R3.geo.disk, R3.mat.blob); shadow.scale.setScalar(1.25); shadow.position.set(0.06, -0.08, PZ + 0.012); g.add(shadow);
+    const hub = new THREE.Mesh(R3.geo.hub, R3.mat.hub); hub.rotation.x = Math.PI / 2; hub.position.z = PZ + 0.05; g.add(hub);
+    const shadow = new THREE.Mesh(R3.geo.disk, R3.mat.blob); shadow.scale.setScalar(1.22); shadow.position.set(0.06, -0.08, PZ + 0.012); rot.add(shadow);
     let lock = null, lockBadge = null;
-    if (Cc.lockLamp[ri] >= 0){ lock = makeLock(); lock.position.set(0, 0, 0.32); g.add(lock); lockBadge = badge(String(Cc.lockLamp[ri] + 1), '#ffb000', '#3a2400', 0.26); lockBadge.position.set(0.24, -0.22, 0.5); g.add(lockBadge); }
+    if (Cc.lockColor[ri] >= 0){ const ci = Cc.lockColor[ri]; lock = makeLock(); lock.position.set(0, 0, 0.32); g.add(lock);
+      lockBadge = new THREE.Mesh(R3.geo.disk, R3.mat.rim[ci].clone()); lockBadge.userData.ownMat = true; lockBadge.scale.setScalar(0.13); lockBadge.position.set(0.24, -0.22, 0.5); g.add(lockBadge); }
     root.add(g);
-    lv.rings.push({ id: r.id, g, rot, arc, core, back, front, lock, lockBadge, lockOff: 0, cont: gs[ri], vis: gs[ri], anim: null, shake: 0 });
+    lv.rings.push({ id: r.id, g, rot, arc, core, lock, lockBadge, lockOff: 0, cont: gs[ri], vis: gs[ri], anim: null, shake: 0 });
   });
-  // пятачки и дорожки: медные кружки в точках касания и полосы между ними (по цепочке ближайших)
+  // пятачки: медные кружки в точках касания и полосы между ними (по цепочке ближайших); четыре близкие точки — один круг
   (L.pads || []).forEach((pd, pi) => {
     const pts = Cc.padPts[pi].map(i => Cc.pts[i]), order = [pts[0]], left = pts.slice(1);
-    if (pd.path){   // дорожка по заданному пути: кружки в точках касания, полосы между точками пути
-      const way = pd.path.map(q => Array.isArray(q) ? { x: q[0], y: q[1] } : (() => { const m = /^([A-Za-z0-9]+)\.(\w+)$/.exec(q); return tipPos(L.rings.find(r => r.id === m[1]), DIR.indexOf(m[2])); })());
-      for (const p of pts){ const d = new THREE.Mesh(R3.geo.disk, R3.mat.pad); d.scale.setScalar(CFG.PAD_R + 0.04); d.position.set(p.x, p.y, PZ + 0.02); root.add(d); }
-      for (let i = 1; i < way.length; i++){ const a = way[i - 1], b = way[i], len = Math.hypot(b.x - a.x, b.y - a.y);
-        const st = new THREE.Mesh(R3.geo.plane, R3.mat.pad); st.scale.set(len + CFG.PAD_R * 1.3, CFG.PAD_R * 1.3, 1); st.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, PZ + 0.02); st.rotation.z = Math.atan2(b.y - a.y, b.x - a.x); root.add(st); }
-      return; }
     const cx = pts.reduce((a, p) => a + p.x, 0) / pts.length, cy = pts.reduce((a, p) => a + p.y, 0) / pts.length, rad = Math.max(...pts.map(p => Math.hypot(p.x - cx, p.y - cy)));
     if (pts.length >= 3 && rad < 0.7){ const d = new THREE.Mesh(R3.geo.disk, R3.mat.pad); d.scale.setScalar(rad + CFG.PAD_R); d.position.set(cx, cy, PZ + 0.02); root.add(d); return; }
     while (left.length){ const last = order[order.length - 1]; let bi = 0, bd = Infinity; left.forEach((p, i) => { const d = Math.hypot(p.x - last.x, p.y - last.y); if (d < bd){ bd = d; bi = i; } }); order.push(left.splice(bi, 1)[0]); }
     for (const p of order){ const d = new THREE.Mesh(R3.geo.disk, R3.mat.pad); d.scale.setScalar(CFG.PAD_R + 0.04); d.position.set(p.x, p.y, PZ + 0.02); root.add(d); }
     for (let i = 1; i < order.length; i++){ const a = order[i - 1], b = order[i], len = Math.hypot(b.x - a.x, b.y - a.y);
-      const s = new THREE.Mesh(R3.geo.plane, R3.mat.pad); s.scale.set(len, CFG.PAD_R * 1.3, 1); s.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, PZ + 0.02); s.rotation.z = Math.atan2(b.y - a.y, b.x - a.x); root.add(s); }
+      const st = new THREE.Mesh(R3.geo.plane, R3.mat.pad); st.scale.set(len, CFG.PAD_R * 1.3, 1); st.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, PZ + 0.02); st.rotation.z = Math.atan2(b.y - a.y, b.x - a.x); root.add(st); }
   });
-  // точки касания: стык двух подков — медная заклёпка; пустое место (конец там ничего не коснётся) — тёмная точка
-  Cc.pts.forEach((p) => { if (p.pad >= 0 || p.pins.length || p.node) return;
+  // точки касания: стык двух подков — медная заклёпка; пустое место — тёмная точка
+  Cc.pts.forEach((p) => { if (p.pad >= 0 || p.sock >= 0) return;
     if (p.tips.length >= 2){ const m = new THREE.Mesh(R3.geo.disk, R3.mat.rivet); m.scale.setScalar(0.15); m.position.set(p.x, p.y, PZ + 0.025); root.add(m); }
     else { const m = new THREE.Mesh(R3.geo.disk, R3.mat.hole); m.scale.setScalar(0.06); m.position.set(p.x, p.y, PZ + 0.025); root.add(m); } });
   lv.tipGlow = L.rings.map(() => [0, 1].map(() => { const m = new THREE.Mesh(R3.geo.plane, R3.mat.contact.clone()); m.userData.ownMat = true; m.renderOrder = 8; m.visible = false; root.add(m); return { m, on: false, t0: 0 }; }));
-  // клеммы: батарейка (+ красная, − синяя, со значками) и лампочки (тёмные); общая клемма — одна модель
-  const clampAt = new Map();
-  Cc.pts.forEach((p, i) => { if (!p.pins.length) return;
-    const role = p.pins.some(q => q.comp === 'bat' && q.pin === 'p') ? 'p' : p.pins.some(q => q.comp === 'bat' && q.pin === 'm') ? 'm' : 'l';
-    const cl = makeClamp(role); cl.position.set(p.x, p.y, PZ + 0.13); root.add(cl); clampAt.set(i, cl);
-    if (role !== 'l'){   // крупный значок снаружи от подковы + цветной ореол под клеммой
-      const b = badge(role === 'p' ? '+' : '-', role === 'p' ? VIEW.PLUS : VIEW.MINUS), out = outward(L, p);
-      b.position.set(p.x + out.x * 0.5, p.y + out.y * 0.5, 0.35); b.scale.setScalar(VIEW.BADGE); root.add(b);
-      const gl = new THREE.Mesh(R3.geo.plane, R3.mat.ringGlow[role]); gl.scale.setScalar(1.05); gl.position.set(p.x, p.y, PZ + 0.03); gl.renderOrder = 1; root.add(gl); }
-    lv.clamps.push({ i, role, cl });
-  });
-  // батарейка: лежит в двух скобах, + к своей клемме
-  { const B = lay.bat, bg = new THREE.Group(); bg.position.set(B.x, B.y, PZ + VIEW.BAT_D / 2 + 0.04);
-    const body = makeBattery(); body.rotation.z = B.ang; bg.add(body);
-    const sh = new THREE.Mesh(R3.geo.plane, R3.mat.blob); sh.scale.set(VIEW.BAT_L * 1.2, 0.7, 1); sh.rotation.z = B.ang; sh.position.set(0.05, -0.12, -VIEW.BAT_D / 2 + 0.01); bg.add(sh);
-    root.add(bg); lv.bat = bg;
-    const ex = Math.cos(B.ang) * VIEW.BAT_L / 2, ey = Math.sin(B.ang) * VIEW.BAT_L / 2;
-    const ends = { p: new THREE.Vector3(B.x + ex, B.y + ey, bg.position.z), m: new THREE.Vector3(B.x - ex, B.y - ey, bg.position.z) };
-    for (const pin of ['p', 'm']){ const b = badge(pin === 'p' ? '+' : '-', pin === 'p' ? VIEW.PLUS : VIEW.MINUS), e = ends[pin], k = pin === 'p' ? 1 : -1;
-      b.position.set(e.x + Math.cos(B.ang) * k * 0.3, e.y + Math.sin(B.ang) * k * 0.3, e.z + 0.35); b.scale.setScalar(VIEW.BADGE * 0.9); root.add(b); }
-    for (const pin of ['p', 'm']) root.add(leadMesh(ends[pin], pinPoint(L, Cc, L.bat[pin], pin === 'p' ? Cc.P : Cc.M, ends[pin]), R3.mat.lead[pin], 'bat'));
-  }
-  // лампочки: патрон с нитью (Tripo) на полочке, колба, ореол, свет на панели, номер
-  L.lamps.forEach((lp, li) => {
-    const Lp = lay.lamps[li], g = new THREE.Group(); g.position.set(Lp.x, Lp.y, PZ + 0.36);
-    const shelf = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.06, 0.72), R3.mat.brass); shelf.userData.ownGeo = true; shelf.position.set(0, -0.03, 0); g.add(shelf);
-    const base = makeLampBase(); g.add(base);
-    const bulb = own(new THREE.Mesh(R3.geo.bulb, bulbMaterial())); bulb.position.y = VIEW.LAMP_H * 0.62; bulb.renderOrder = 6; g.add(bulb);
-    const halo = new THREE.Mesh(R3.geo.plane, R3.mat.halo.clone()); halo.userData.ownMat = true; halo.position.set(0, VIEW.LAMP_H * 0.62 + VIEW.BULB_R * 0.75, 0.45); halo.renderOrder = 8; halo.visible = false; g.add(halo);
-    const pool = new THREE.Mesh(R3.geo.plane, R3.mat.pool.clone()); pool.userData.ownMat = true; pool.position.set(0, VIEW.LAMP_H * 0.7, PZ - g.position.z + 0.03); pool.scale.setScalar(4.2); pool.visible = false; pool.renderOrder = 0; g.add(pool);
-    const sh = new THREE.Mesh(R3.geo.plane, R3.mat.blob); sh.scale.set(1.3, 0.8, 1); sh.position.set(0.06, 0.15, PZ - g.position.z + 0.012); g.add(sh);
-    let num = null; if (L.lamps.length > 1){ num = badge(String(li + 1), '#ffb000', '#3a2400', 0.3); num.position.set(0.52, VIEW.LAMP_H * 0.25, 0.35); g.add(num); }
+  // гнёзда: цветное кольцо на панели, тёмный колодец со значком формы, цветной купол-плафон; ореол и свет на панели при токе
+  Cc.socks.forEach((S, si) => {
+    const p = Cc.pts[S.pt], ci = S.color, g = new THREE.Group(); g.position.set(p.x, p.y, PZ);
+    const rim = new THREE.Mesh(R3.geo.rim, R3.mat.rim[ci]); rim.position.z = 0.05; g.add(rim);
+    const well = new THREE.Mesh(R3.geo.disk, R3.mat.well); well.scale.setScalar(VIEW.SOCK_RIM - 0.04); well.position.z = 0.03; g.add(well);
+    const icon = badge(shapeTexture(COLORS[ci].shape), 0.26); icon.position.z = 0.06; icon.renderOrder = 2; g.add(icon);
+    const dome = own(new THREE.Mesh(R3.geo.dome, domeMaterial(ci))); dome.rotation.x = Math.PI / 2; dome.position.z = 0.06; dome.renderOrder = 6; g.add(dome);
+    const halo = new THREE.Mesh(R3.geo.plane, R3.mat.halo.clone()); halo.userData.ownMat = true; halo.material.color = lin(VIEW.PAIR[ci].glow); halo.position.z = 0.55; halo.renderOrder = 8; halo.visible = false; g.add(halo);
+    const pool = new THREE.Mesh(R3.geo.plane, R3.mat.pool.clone()); pool.userData.ownMat = true; pool.material.color = lin(VIEW.PAIR[ci].glow); pool.position.z = 0.02; pool.scale.setScalar(2.4); pool.visible = false; pool.renderOrder = 0; g.add(pool);
+    const sh = new THREE.Mesh(R3.geo.disk, R3.mat.blob); sh.scale.setScalar(VIEW.SOCK_RIM + 0.12); sh.position.set(0.05, -0.07, 0.012); g.add(sh);
     root.add(g);
-    const term = (side) => new THREE.Vector3(Lp.x + side * 0.3, Lp.y + 0.02, g.position.z - 0.05);
-    const sa = Lp.aLeft ? -1 : 1;
-    root.add(leadMesh(term(sa), pinPoint(L, Cc, lp.a, Cc.lamps[li].a, term(sa)), R3.mat.lead.a, 'lamp'), leadMesh(term(-sa), pinPoint(L, Cc, lp.b, Cc.lamps[li].b, term(-sa)), R3.mat.lead.b, 'lamp'));
-    lv.lamps.push({ g, base, bulb, halo, pool, num, glow: 0, litT0: 0, lit: false });
+    lv.socks.push({ g, dome, halo, pool, color: ci, glow: 0, litT0: 0, lit: false });
   });
-  // свободные узлы (клемма без подков) — уже клемма; тени винтов готовы. Призрак следующего положения, искра превью, ореол подсказки.
-  const ghostArc = new THREE.Mesh(R3.geo.glass, R3.mat.ghostArc); ghostArc.visible = false; ghostArc.renderOrder = 5; root.add(ghostArc);
+  // призрак следующего положения, искра превью, ореол и стрелка подсказки
+  const ghostArc = new THREE.Mesh(R3.geo.arc, R3.mat.ghostArc); ghostArc.visible = false; ghostArc.renderOrder = 5; root.add(ghostArc);
   const zap = new THREE.Mesh(R3.geo.plane, R3.mat.zap); zap.visible = false; zap.renderOrder = 10; zap.scale.setScalar(0.55); root.add(zap);
   const hintRing = new THREE.Mesh(R3.geo.plane, R3.mat.hintRing); hintRing.visible = false; hintRing.renderOrder = 6; root.add(hintRing);
-  // панель электрика (Tripo) под всем
-  const ext = contentBox(lv); lv.box = ext;
-  Object.assign(lv, { ghostArc, zap, hintRing });
+  const hintArrow = new THREE.Mesh(R3.geo.plane, R3.mat.hintArrow); hintArrow.visible = false; hintArrow.renderOrder = 11; root.add(hintArrow);
+  lv.box = fieldBox(L, Cc);
+  Object.assign(lv, { ghostArc, zap, hintRing, hintArrow });
   R3.scene.add(root); R3.level = lv;
   frameCamera();
   fitPanel();
   syncView(now());
   if (!noWarm) warmUp();
-  log('event', 'level.built', 'rings=' + L.rings.length + ' lamps=' + L.lamps.length + ' pads=' + (L.pads || []).length);
+  log('event', 'level.built', 'rings=' + L.rings.length + ' socks=' + Cc.socks.length + ' pads=' + (L.pads || []).length);
 }
-// Наружу от подков: направление от ближайшего центра подковы к точке (значок не налезает на дугу).
-function outward(L, p){ let best = null, bd = Infinity; for (const r of L.rings){ const c = ringCenter(r), d = Math.hypot(p.x - c.x, p.y - c.y); if (d < bd){ bd = d; best = c; } }
-  const dx = p.x - best.x, dy = p.y - best.y, n = Math.hypot(dx, dy) || 1; return { x: dx / n, y: dy / n }; }
-// Касается ли конец подковы ri (по положению g) чего-то проводящего: клеммы, пятачка или конца соседней подковы.
+// Касается ли конец подковы ri (по положению g) чего-то: гнезда, пятачка или конца соседней подковы.
 function tipContact(Cc, g, ri, k){
   const pi = Cc.tipPt[ri][k], p = Cc.pts[pi];
-  if (p.pins.length || p.pad >= 0 || p.node) return true;
+  if (p.sock >= 0 || p.pad >= 0) return true;
   return p.tips.some(t => t.ri !== ri && tipsOf(g[t.ri]).includes(t.k));
-}
-// Куда подходит провод: к клемме; если вывод на пятачке или дорожке — к ближайшей к корпусу точке пятачка.
-function pinPoint(L, Cc, ref, pi, from){
-  const pdi = (L.pads || []).findIndex(p => p.id === ref); if (pdi < 0) return Cc.pts[pi];
-  let best = Cc.pts[pi], bd = Infinity; for (const i of Cc.padPts[pdi]){ const p = Cc.pts[i], d = Math.hypot(p.x - from.x, p.y - from.y); if (d < bd){ bd = d; best = p; } } return best;
-}
-// Вывод (провод): от вывода корпуса к клемме — отходит вперёд, ложится на панель и идёт к клемме.
-function leadMesh(from, to, mat, kind){
-  const PZ = VIEW.PANEL_Z, z = PZ + 0.07, end = new THREE.Vector3(to.x, to.y, z);
-  const drop = new THREE.Vector3(from.x + (end.x - from.x) * 0.15, from.y + (kind === 'lamp' ? -0.18 : (end.y > from.y ? 0.15 : -0.15)), z + 0.04);
-  const mid = new THREE.Vector3((drop.x + end.x) / 2, (drop.y + end.y) / 2, z);
-  const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([from.clone(), drop, mid, end], false, 'centripetal'), 40, VIEW.LEAD_R, 8, false);
-  const m = new THREE.Mesh(geo, mat); m.userData.ownGeo = true; m.renderOrder = 0; return m;
-}
-function contentBox(lv){
-  const b = { ...lv.lay.fb };
-  b.y0 = Math.min(b.y0, lv.lay.bat.y - (lv.lay.bat.vert ? VIEW.BAT_L / 2 + 0.2 : VIEW.BAT_D / 2 + 0.4));
-  const bw = lv.lay.bat.vert ? VIEW.BAT_D / 2 + 0.2 : VIEW.BAT_L / 2 + 0.15, bh = lv.lay.bat.vert ? VIEW.BAT_L / 2 + 0.2 : VIEW.BAT_D / 2 + 0.4;
-  b.x0 = Math.min(b.x0, lv.lay.bat.x - bw); b.x1 = Math.max(b.x1, lv.lay.bat.x + bw); b.y1 = Math.max(b.y1, lv.lay.bat.y + bh);
-  for (const Lp of lv.lay.lamps){ b.y1 = Math.max(b.y1, Lp.y + VIEW.LAMP_H * 0.62 + VIEW.BULB_R * 2); b.x0 = Math.min(b.x0, Lp.x - 0.55); b.x1 = Math.max(b.x1, Lp.x + 0.55); b.y0 = Math.min(b.y0, Lp.y - 0.15); }
-  return b;
 }
 // Панель электрика (Tripo) во весь кадр: внешний край рамы чуть за краем экрана, видна внутренняя кромка рамы.
 // Пересобирается при смене размера кадра (fit → frameCamera → fitPanel).
@@ -1217,7 +1093,7 @@ function frameCamera(){
   const w = b0.x1 - b0.x0 + 2 * pad, hc = b0.y1 - b0.y0 + 2 * pad, h = hc / (1 - VIEW.TOP_FRAC), cx = (b0.x0 + b0.x1) / 2;
   const cy = (b0.y0 - pad) + h / 2;
   const t = Math.tan(THREE.MathUtils.degToRad(VIEW.FOV / 2)), dist = Math.max(h / 2 / t, w / 2 / (t * cam.aspect)) + 0.5;
-  const hv = 2 * t * (dist - 0.5), cyy = hv > h ? cy + (hv - h) * 0.1 : cy;
+  const hv = 2 * t * (dist - 0.5), cyy = hv > h ? (b0.y0 + b0.y1) / 2 + hv * VIEW.TOP_FRAC * 0.5 : cy;   // лишняя высота — поровну сверху и снизу
   cam.position.set(cx, cyy + Math.sin(VIEW.TILT) * dist, Math.cos(VIEW.TILT) * dist); cam.lookAt(cx, cyy, 0); cam.updateProjectionMatrix(); cam.updateMatrixWorld();
   R3.camLook = new THREE.Vector3(cx, cyy, 0);
   const bgH = 2 * t * (dist + 6) * 1.2;
@@ -1226,7 +1102,7 @@ function frameCamera(){
 // Прогрев (lesson-threejs-first-draw-warmup): один раз нарисовать всё, что появится позже, потом вернуть как было.
 function warmUp(){
   const lv = R3.level; if (!lv) return;
-  const show = [lv.ghostArc, lv.zap, lv.hintRing, ...lv.lamps.flatMap(Lm => [Lm.halo, Lm.pool])];
+  const show = [lv.ghostArc, lv.zap, lv.hintRing, lv.hintArrow, ...lv.socks.flatMap(Sk => [Sk.halo, Sk.pool])];
   const was = show.map(o => o.visible);
   show.forEach(o => { o.visible = true; });
   R3.sparks.count = 1; R3.smoke.count = 1; R3.glints.count = 1;
@@ -1242,7 +1118,7 @@ function updateRings(tNow){
     let base = R.cont;
     if (R.anim){ const k = (tNow - R.anim.t0) / (R.anim.ms / ts); if (k >= 1) R.anim = null; else base = R.anim.from + (R.anim.to - R.anim.from) * (R.anim.back ? ease.back(Math.max(0, k)) : ease.out(Math.max(0, k))); }
     let off = 0;
-    if (P && P.ri === ri && P.drag){ off = P.acc / STEP; off = Math.max(-0.62, Math.min(0.62, off)); }
+    if (P && P.ri === ri && P.drag){ off = VIEW.DRAG_FOLLOW * P.acc / STEP; off = Math.max(-0.62, Math.min(0.62, off)); }   // палец ведёт подкову не 1:1 — между щелчками она «упирается» (трещотка)
     if (R.shake){ const k = (tNow - R.shake) / (420 / ts); if (k >= 1) R.shake = 0; else off += 0.08 * Math.sin(k * Math.PI * 6) * (1 - k); }
     if (G.spinDemo) off += (tNow - G.spinDemo) / 1000 * 1.6 * (ri % 2 ? -1 : 1);
     R.vis = base + off;
@@ -1256,17 +1132,18 @@ function syncView(tNow){
   const time = tNow / 1000, ts = G.timeScale, S = G.shown;
   updateRings(tNow);
   const flowK = S.flow ? Math.max(0, (tNow - S.t0) / (CFG.FLOW_MS / ts)) * S.flow.maxStep : 0;
-  const burnK = S.fault ? Math.min(1, Math.max(0, (tNow - S.t0) / (VIEW.BURN_MS / ts))) : 0;
+  const clashK = S.clash ? Math.max(0, (tNow - S.t0) / (VIEW.CLASH_MS / ts)) : 0;
+  const burnK = S.fault ? Math.min(1, Math.max(0, (tNow - S.t0 - VIEW.CLASH_MS / ts) / (VIEW.BURN_MS / ts))) : 0;
   const faulty = S.fault ? new Set(S.fault.rings) : null;
   lv.rings.forEach((R, ri) => {
     const u = R.core.material.uniforms; u.uTime.value = time; u.uGhost.value = 0;
     const f = S.flow && S.flow.rings[ri];
     const live = f && S.g[ri] === (G.s ? G.s.g[ri] : S.g[ri]) && !R.anim;
-    if (live){ const tips = tipsOf(S.g[ri]); u.uOn.value = 1; u.uDir.value = f.fromTip === tips[0] ? 1 : -1; u.uHead.value = Math.max(0, Math.min(1, flowK - f.step)); }
+    if (live){ const tips = tipsOf(S.g[ri]); u.uOn.value = 1; u.uDir.value = f.fromTip === tips[0] ? 1 : -1; u.uHead.value = Math.max(0, Math.min(1, flowK - f.step)); u.uGlow.value.copy(PAIR_GLOW[f.color]); }
+    else if (S.clash && S.clash.rings[ri] && burnK < 1){ const c = S.clash.rings[ri], tips = tipsOf(S.g[ri]);   // ток своего цвета бежит к точке встречи
+      u.uOn.value = 1; u.uDir.value = c.fromTip === tips[0] ? 1 : -1; u.uHead.value = Math.max(0, Math.min(1, clashK * c.of - c.step)); u.uGlow.value.copy(PAIR_GLOW[c.color]); }
     else { u.uOn.value = 0; u.uHead.value = 0; }
-    const burn = faulty && faulty.has(ri) ? burnK : 0;
-    u.uBurn.value = burn; R.front.material.uniforms.uSmoke.value = burn * 0.8; R.back.material.uniforms.uSmoke.value = burn * 0.8;
-    R.front.material.uniforms.uWarm.value = live ? Math.min(1, u.uHead.value) : 0;
+    u.uBurn.value = faulty && faulty.has(ri) ? burnK * 0.85 : 0;
   });
   // сияние на концах подков, которые чего-то касаются (только когда подкова стоит; при касании — короткая вспышка)
   if (G.s) lv.rings.forEach((R, ri) => { const tips = tipsOf(G.s.g[ri]), c = ringCenter(lv.L.rings[ri]);
@@ -1274,24 +1151,24 @@ function syncView(tNow){
       if (on && !T.on) T.t0 = tNow; T.on = on; T.m.visible = on;
       if (on){ const d = dirVec(k), pop = Math.max(0, 1 - (tNow - T.t0) / (260 / ts)); T.m.position.set(c.x + d.x * CFG.R, c.y + d.y * CFG.R, 0.12);
         T.m.scale.setScalar(0.5 + 0.5 * pop + 0.03 * Math.sin(time * 5 + ri)); T.m.material.opacity = 0.75 + 0.25 * pop; } }); });
-  // лампочки: разгораются, когда ток до них дошёл
-  lv.lamps.forEach((Lm, li) => {
-    const lf = S.flow && S.flow.lamps[li];
+  // гнёзда: плафоны пары разгораются, когда ток дошёл до второго гнезда
+  lv.socks.forEach((Sk, si) => {
+    const sf = S.flow && S.flow.socks[si];
     let target = 0;
-    if (lf){ const k = flowK - lf.step; target = Math.max(0, Math.min(1, k)); if (k > 0 && !Lm.lit){ Lm.lit = true; Lm.litT0 = tNow; onLampLit(li); } }
-    else Lm.lit = false;
-    Lm.glow += (target - Lm.glow) * 0.25; if (Math.abs(target - Lm.glow) < 0.002) Lm.glow = target;
-    const gl = Lm.glow, fl = 1 + 0.05 * Math.sin(time * 23 + li) + 0.03 * Math.sin(time * 6.1);
-    Lm.bulb.material.uniforms.uGlow.value = gl; Lm.bulb.material.uniforms.uTime.value = time;
-    Lm.halo.visible = Lm.pool.visible = gl > 0.01; Lm.halo.scale.setScalar((0.8 + 0.95 * gl) * fl); Lm.halo.material.opacity = gl * 0.7;
-    Lm.pool.material.opacity = gl * 0.9;
+    if (sf){ const k = flowK - sf.step; target = Math.max(0, Math.min(1, k)); if (k > 0 && !Sk.lit){ Sk.lit = true; Sk.litT0 = tNow; onSockLit(si); } }
+    else Sk.lit = false;
+    Sk.glow += (target - Sk.glow) * 0.25; if (Math.abs(target - Sk.glow) < 0.002) Sk.glow = target;
+    const gl = Sk.glow, fl = 1 + 0.05 * Math.sin(time * 23 + si) + 0.03 * Math.sin(time * 6.1);
+    Sk.dome.material.uniforms.uGlow.value = gl; Sk.dome.material.uniforms.uTime.value = time;
+    Sk.halo.visible = Sk.pool.visible = gl > 0.01; Sk.halo.scale.setScalar((0.9 + 1.1 * gl) * fl); Sk.halo.material.opacity = gl * 0.75;
+    Sk.pool.material.opacity = gl * 0.9;
   });
-  // праздник: вспышка ламп (ореол ×2,5 и обратно), вращающиеся лучи, тёплая волна по кадру, жилы бегут ярче
+  // праздник: вспышка плафонов (ореол ×2 и обратно), вращающиеся лучи, тёплая волна по кадру, ток бежит ярче
   const pk = lv.party ? (tNow - lv.party) / (VIEW.CELEBRATE_MS / ts) : -1;
   lv.rings.forEach(R => { R.core.material.uniforms.uWin.value = pk >= 0 ? 1 : 0; });
   if (pk >= 0){ const flare = Math.max(0, 1 - pk * 1.6);
-    lv.lamps.forEach((Lm, li) => { Lm.halo.scale.multiplyScalar(1 + 1.1 * flare); Lm.halo.material.opacity = Math.min(1, Lm.halo.material.opacity + 0.6 * flare);
-      if (Lm.rays){ Lm.rays.rotation.z = time * 0.6 + li; Lm.rays.scale.setScalar((1.6 + 1.4 * Math.min(1, pk * 3)) * (1 + 0.05 * Math.sin(time * 4))); Lm.rays.material.opacity = 0.55 + 0.45 * flare; } });
+    lv.socks.forEach((Sk, si) => { Sk.halo.scale.multiplyScalar(1 + 1.0 * flare); Sk.halo.material.opacity = Math.min(1, Sk.halo.material.opacity + 0.6 * flare);
+      if (Sk.rays){ Sk.rays.rotation.z = time * 0.6 + si; Sk.rays.scale.setScalar((1.2 + 1.0 * Math.min(1, pk * 3)) * (1 + 0.05 * Math.sin(time * 4))); Sk.rays.material.opacity = 0.45 + 0.4 * flare; } });
     if (lv.wash){ const cam = R3.camera; lv.wash.position.set(cam.position.x, R3.camLook.y, 1.5); lv.wash.scale.set(40, 40, 1); lv.wash.material.opacity = 0.3 * Math.max(0, 1 - pk * 2.2); }
   }
   // вспышки замыкания: два-три мигания за 300 мс, потом гаснут
@@ -1299,15 +1176,16 @@ function syncView(tNow){
     const fl = (0.6 + 0.4 * Math.sin(k * 40 + F.seed * 9)) * (1 - k); F.m.scale.setScalar(0.4 + 1.6 * fl); F.m.material.opacity = fl; return true; });
   applyPreview(time);
 }
-function onLampLit(li){
-  const lv = R3.level, Lm = lv.lamps[li];
-  Snd.ding(li); buzz(18); log('fx.start', 'lamp.lit', 'L' + (li + 1));
-  const p = new THREE.Vector3(Lm.g.position.x, Lm.g.position.y + VIEW.LAMP_H * 0.62 + VIEW.BULB_R, Lm.g.position.z + 0.3);
-  for (let i = 0; i < 16; i++){ const a = rndFx() * Math.PI * 2, sp = 0.6 + rndFx() * 1.2; spawn('glint', p, new THREE.Vector3(Math.cos(a) * sp, Math.sin(a) * sp + 0.6, 0.3), 900, 0.035 + rndFx() * 0.025, i % 3 ? '#ffe39a' : '#ffffff'); }
+// Пара загорелась: «дзынь» один раз на пару (на первом гнезде), искорки из обоих плафонов.
+function onSockLit(si){
+  const lv = R3.level, Sk = lv.socks[si], first = lv.Cc.colorSocks[Sk.color][0] === si;
+  if (first){ Snd.ding(Sk.color); buzz(18); log('fx.start', 'pair.lit', COLORS[Sk.color].id); }
+  const p = new THREE.Vector3(Sk.g.position.x, Sk.g.position.y, 0.3), col = VIEW.PAIR[Sk.color].glow;
+  for (let i = 0; i < 12; i++){ const a = rndFx() * Math.PI * 2, sp = 0.6 + rndFx() * 1.2; spawn('glint', p, new THREE.Vector3(Math.cos(a) * sp, Math.sin(a) * sp + 0.5, 0.3), 850, 0.035 + rndFx() * 0.025, i % 3 ? col : '#ffffff'); }
 }
 
-// Превью: пока палец на подкове — призрак её следующего положения и что замкнётся: ток по жилам (жёлтый пунктир) и лампочки,
-// или красные жилы и молния там, где закоротит. Подсказка показывает то же для первого хода решения.
+// Превью: пока палец на подкове — призрак её следующего положения и что будет: ток цвета пары пунктиром и плафоны,
+// или красные дуги и молния там, где искрит. Подсказка показывает то же для первого хода решения и стрелку, куда крутить.
 function previewNow(){
   const P = G.press;
   if (P && !G.pending && G.s && legalMoves(G.s).length) return { m: moveOf(P.ri, P.dir || 1), hint: false };
@@ -1316,13 +1194,14 @@ function previewNow(){
 }
 function applyPreview(time){
   const lv = R3.level, L = lv.L;
-  lv.ghostArc.visible = false; lv.zap.visible = false; lv.hintRing.visible = false;
+  lv.ghostArc.visible = false; lv.zap.visible = false; lv.hintRing.visible = false; lv.hintArrow.visible = false;
   const pm = previewNow(); if (!pm || !G.s) return;
   const ri = pm.m >> 1, dir = (pm.m & 1) ? -1 : 1, r = L.rings[ri], c = ringCenter(r);
   if (ringLocked(G.s, ri)) return;
   const R = lv.rings[ri], pulse = 1 + 0.08 * Math.sin(time * 9);
   lv.ghostArc.visible = true; lv.ghostArc.position.set(c.x, c.y, 0.03); lv.ghostArc.rotation.z = ARC0 - (R.cont + dir) * STEP;
-  if (pm.hint){ lv.hintRing.visible = true; lv.hintRing.position.set(c.x, c.y, 0.3); lv.hintRing.scale.setScalar(2.9 * pulse); }
+  if (pm.hint){ lv.hintRing.visible = true; lv.hintRing.position.set(c.x, c.y, 0.3); lv.hintRing.scale.setScalar(2.9 * pulse);
+    lv.hintArrow.visible = true; lv.hintArrow.position.set(c.x, c.y + 0.15, 0.7); lv.hintArrow.scale.set(2.1 * dir * pulse, 2.1 * pulse, 1); lv.hintArrow.rotation.z = -dir * ((time * 1.6) % 1) * 0.35; }
   const n = previewMoveState(G.s, pm.m); if (!n) return;
   if (isFail(n)){
     const f = faultInfo(n.C, n.g, n.res);
@@ -1330,17 +1209,17 @@ function applyPreview(time){
     const pt = faultPoint(n, f, ri); lv.zap.visible = true; lv.zap.position.set(pt.x, pt.y, 0.5); lv.zap.scale.setScalar(0.55 * pulse);
   } else if (n.res.lit){
     const fl = currentFlow(n.C, n.g, n.res);
-    for (const k of Object.keys(fl.rings)) if (+k !== ri || true) lv.rings[+k].core.material.uniforms.uGhost.value = 1;
-    for (const li of Object.keys(fl.lamps)){ const Lm = lv.lamps[+li]; if (Lm.glow < 0.5){ Lm.halo.visible = true; Lm.halo.scale.setScalar(1.0 * pulse); Lm.halo.material.opacity = 0.35; } }
+    for (const k of Object.keys(fl.rings)){ const u = lv.rings[+k].core.material.uniforms; u.uGhost.value = 1; u.uGlow.value.copy(PAIR_GLOW[fl.rings[k].color]); }
+    for (const si of Object.keys(fl.socks)){ const Sk = lv.socks[+si]; if (Sk.glow < 0.5){ Sk.halo.visible = true; Sk.halo.scale.setScalar(1.0 * pulse); Sk.halo.material.opacity = 0.4; } }
   }
 }
 function previewMoveState(s, m){ const n = applyMove(s, m); return n === s ? null : n; }
-// Где искрит: точка касания на пути замыкания, ближайшая к повёрнутой подкове (её конец), иначе — клемма +.
+// Где искрит: точка касания на пути искры, ближайшая к повёрнутой подкове (её конец), иначе — первое гнездо.
 function faultPoint(s, f, ri){
   const C2 = s.C; let best = null, bd = Infinity;
   const c = ri >= 0 ? ringCenter(s.L.rings[ri]) : null;
   for (const e of (f.path || [])){ for (const pi of [e.from, e.to]){ if (pi === undefined) continue; const p = C2.pts[pi]; const d = c ? Math.hypot(p.x - c.x, p.y - c.y) : 0; if (d < bd){ bd = d; best = p; } } }
-  return best || C2.pts[C2.P];
+  return best || C2.pts[C2.socks[f.socks[0]].pt];
 }
 
 // --- ход: щелчок подковы → ядро сразу, итог показывается после анимации щелчка ---
@@ -1349,12 +1228,12 @@ function turnRing(ri, dir, how){
   const lv = R3 && R3.level, m = moveOf(ri, dir);
   if (ri >= G.s.C.n) return false;
   log('input', 'turn', 'ring=' + G.s.L.rings[ri].id + ' dir=' + dir + ' how=' + how);
-  if (isFail(G.s)){ Snd.deny(); buzz(15); toast('Сначала отмени ход — тут замыкание'); return false; }
+  if (isFail(G.s)){ Snd.deny(); buzz(15); toast('Сначала отмени ход — тут искра'); return false; }
   if (isWin(G.s)){ return false; }
-  if (ringLocked(G.s, ri)){ Snd.deny(); buzz(15); toast('Подкова ' + G.s.L.rings[ri].id + ' на замке: зажги лампочку ' + (G.s.C.lockLamp[ri] + 1)); if (lv) lv.rings[ri].shake = now(); return false; }
+  if (ringLocked(G.s, ri)){ Snd.deny(); buzz(15); toast('Подкова на замке: соедини ' + COLORS[G.s.C.lockColor[ri]].ins.replace(/им$/, 'ие') + ' гнёзда'); if (lv) lv.rings[ri].shake = now(); return false; }
   hideBanners(); Snd.humOff();
   const before = G.s; G.s = applyMove(G.s, m); G.hint = null;
-  if (lv){ const R = lv.rings[ri]; const from = R.vis; R.cont += dir; if (how !== 'drag') R.anim = { from, to: R.cont, t0: now(), ms: CFG.CLICK_MS, back: true }; else { R.anim = { from: R.vis, to: R.cont, t0: now(), ms: 90, back: false }; if (G.press) G.press.acc = 0; } }
+  if (lv){ const R = lv.rings[ri]; const from = R.vis; R.cont += dir; if (how !== 'drag') R.anim = { from, to: R.cont, t0: now(), ms: CFG.CLICK_MS, back: true }; else { const offNew = G.press ? VIEW.DRAG_FOLLOW * G.press.acc / STEP : 0; R.anim = { from: R.vis - offNew, to: R.cont, t0: now(), ms: 90, back: false }; } }   // драг: остаток угла (acc) не сбрасывается — подкова крутится вслед за пальцем 1:1
   Snd.ratchet(dir); buzz(6);
   G.shown = { res: { kind: 'open', lit: 0 }, g: before.g.slice(), t0: now(), flow: null, fault: null };   // пока щёлкает — цепь разомкнута
   G.pending = now() + (how === 'drag' ? 90 : CFG.CLICK_MS) / G.timeScale;
@@ -1364,13 +1243,13 @@ function turnRing(ri, dir, how){
 // Итог щелчка: ток, лампочки, замыкание, замок.
 function resolvePending(){
   G.pending = 0;
-  const s = G.s, ev = s.ev || [];
-  G.shown = showState(s, now());
+  const s = G.s, ev = s.ev || [], tv = ev.find(e => e.k === 'turn');
+  G.shown = showState(s, now(), tv ? tv.ri : -1);
   const touches = s.res.kind !== 'open' || s.res.lit;
   if (touches) Snd.contact();
-  for (const e of ev) if (e.k === 'unlock'){ const R = R3 && R3.level && R3.level.rings[e.ri]; if (R) R.lockOff = now(); Snd.unlock(); toast('Замок открыт: подкова ' + s.L.rings[e.ri].id + ' крутится'); log('event', 'unlock', s.L.rings[e.ri].id); }
+  for (const e of ev) if (e.k === 'unlock'){ const R = R3 && R3.level && R3.level.rings[e.ri]; if (R) R.lockOff = now(); Snd.unlock(); toast('Замок открыт'); log('event', 'unlock', s.L.rings[e.ri].id); }
   if (isFail(s)){
-    const reason = failReason(s); Snd.sparks(true); burst(s); showDead(reason, s.res.kind);
+    G.sparkAt = now() + VIEW.CLASH_MS / G.timeScale; Snd.humOn(0.4);   // сначала токи бегут навстречу, потом искра (renderFrame → spark)
   } else if (s.res.lit){
     Snd.humOn(isWin(s) ? 1 : 0.6); log('fx.start', 'flow', 'lit=' + s.res.lit + ' kind=' + s.res.kind);
     if (isWin(s)){
@@ -1387,16 +1266,16 @@ function starsFor(moves, par){ return moves <= par ? 3 : moves <= par + Math.max
 function celebrate(){
   G.celebrate = 0; const lv = R3 && R3.level; if (!lv) return;
   lv.party = now(); log('fx.start', 'celebrate'); Snd.win(); buzz([30, 40, 30, 40, 60]);
-  lv.lamps.forEach((Lm) => {
-    if (!Lm.rays){ Lm.rays = new THREE.Mesh(R3.geo.plane, R3.mat.rays.clone()); Lm.rays.userData.ownMat = true; Lm.rays.renderOrder = 7; Lm.g.add(Lm.rays); }
-    Lm.rays.position.set(0, VIEW.LAMP_H * 0.62 + VIEW.BULB_R * 0.75, 0.3); Lm.rays.visible = true;
-    const p = new THREE.Vector3(Lm.g.position.x, Lm.g.position.y + VIEW.LAMP_H * 0.62 + VIEW.BULB_R, Lm.g.position.z + 0.4);
-    for (let i = 0; i < 46; i++){ const a = Math.PI / 2 + (rndFx() - 0.5) * 2.2, sp = 2.2 + rndFx() * 2.6;
-      spawn('glint', p, new THREE.Vector3(Math.cos(a) * sp, Math.sin(a) * sp, 0.4 + rndFx()), 1300 + rndFx() * 700, 0.045 + rndFx() * 0.04, ['#ffd23a', '#ffffff', '#ff9a3c', '#fff1a8'][i % 4]); }
+  lv.socks.forEach((Sk, si) => {
+    if (!Sk.rays){ Sk.rays = new THREE.Mesh(R3.geo.plane, R3.mat.rays.clone()); Sk.rays.userData.ownMat = true; Sk.rays.material.color = lin(VIEW.PAIR[Sk.color].glow); Sk.rays.renderOrder = 7; Sk.g.add(Sk.rays); }
+    Sk.rays.position.set(0, 0, 0.45); Sk.rays.visible = true;
+    const p = new THREE.Vector3(Sk.g.position.x, Sk.g.position.y, 0.4);
+    for (let i = 0; i < 22; i++){ const a = Math.PI / 2 + (rndFx() - 0.5) * 2.4, sp = 2.0 + rndFx() * 2.4;
+      spawn('glint', p, new THREE.Vector3(Math.cos(a) * sp, Math.sin(a) * sp, 0.4 + rndFx()), 1200 + rndFx() * 700, 0.04 + rndFx() * 0.035, ['#ffd23a', '#ffffff', VIEW.PAIR[Sk.color].glow, '#fff1a8'][i % 4]); }
   });
   if (!lv.wash){ lv.wash = new THREE.Mesh(R3.geo.plane, R3.mat.wash); lv.wash.renderOrder = 20; lv.root.add(lv.wash); }
 }
-function endParty(lv){ lv.party = 0; lv.lamps.forEach(Lm => { if (Lm.rays) Lm.rays.visible = false; }); if (lv.wash) lv.wash.material.opacity = 0; }
+function endParty(lv){ lv.party = 0; lv.socks.forEach(Sk => { if (Sk.rays) Sk.rays.visible = false; }); if (lv.wash) lv.wash.material.opacity = 0; }
 function showWon(){
   G.won = 0; const s = G.s, clean = s.moves <= G.par, last = s.li >= LEVELS.length - 1;
   $('won-stars').innerHTML = [0, 1, 2].map(i => STAR(i < starsFor(s.moves, G.par))).join('');
@@ -1404,17 +1283,22 @@ function showWon(){
   $('won-next').textContent = last ? 'В меню' : 'Дальше';
   $('won').classList.add('show'); Snd.ding(2); log('screen', 'won'); hud();
 }
-// Искры, дым и копоть в точках замыкания; жилы на пути чернеют (uBurn в syncView).
+// Искры, дым и копоть в точках на пути искры; дуги на пути темнеют (uBurn в syncView).
+function spark(){
+  G.sparkAt = 0; const s = G.s; if (!isFail(s)) return;
+  Snd.humOff(); Snd.sparks(true); burst(s); showDead(failReason(s), s);
+}
 function burst(s){
   const lv = R3 && R3.level; if (!lv) return;
-  const f = faultInfo(s.C, s.g, s.res), pts = new Map();
-  for (const e of (f.path || [])) for (const pi of [e.from, e.to]) if (pi !== undefined) pts.set(pi, s.C.pts[pi]);
-  if (!pts.size) pts.set(s.C.P, s.C.pts[s.C.P]);
+  const f = faultInfo(s.C, s.g, s.res), pts = new Map(), meet = G.shown && G.shown.clash ? G.shown.clash.meet : null;
+  if (meet) pts.set('meet', meet);
+  else { for (const e of (f.path || [])) for (const pi of [e.from, e.to]) if (pi !== undefined) pts.set(pi, s.C.pts[pi]); }
+  if (!pts.size) for (const si of f.socks) pts.set(s.C.socks[si].pt, s.C.pts[s.C.socks[si].pt]);
   log('fx.start', 'sparks', 'points=' + pts.size + ' rings=' + f.rings.map(k => s.L.rings[k].id).join(''));
   for (const p of pts.values()){
-    const at = new THREE.Vector3(p.x, p.y, 0.1);
-    for (let i = 0; i < 26; i++){ const a = rndFx() * Math.PI * 2, sp = 1.8 + rndFx() * 3.6; spawn('spark', at, new THREE.Vector3(Math.cos(a) * sp, Math.sin(a) * sp + 1.2, 0.6 + rndFx() * 1.5), 300 + rndFx() * 450, 0.04 + rndFx() * 0.035, rndFx() < 0.5 ? '#fff6c0' : '#ffb13b'); }
-    const fl = new THREE.Mesh(R3.geo.plane, R3.mat.halo.clone()); fl.userData.ownMat = true; fl.material.color = lin('#ffe9b0'); fl.position.set(p.x, p.y, 0.6); fl.renderOrder = 9; fl.scale.setScalar(0.01);
+    const at = new THREE.Vector3(p.x, p.y, 0.1), big = meet ? 2.2 : 1;
+    for (let i = 0; i < 26 * big; i++){ const a = rndFx() * Math.PI * 2, sp = 1.8 + rndFx() * 3.6; spawn('spark', at, new THREE.Vector3(Math.cos(a) * sp, Math.sin(a) * sp + 1.2, 0.6 + rndFx() * 1.5), 300 + rndFx() * 450, 0.04 + rndFx() * 0.035, rndFx() < 0.5 ? '#fff6c0' : '#ffb13b'); }
+    const fl = new THREE.Mesh(R3.geo.plane, R3.mat.halo.clone()); fl.userData.ownMat = true; fl.material.color = lin('#ffe9b0'); fl.position.set(p.x, p.y, 0.6); fl.renderOrder = 9; fl.scale.setScalar(0.01 * big);
     lv.root.add(fl); lv.flashes.push({ m: fl, t0: now(), seed: rndFx() });
     for (let i = 0; i < 4; i++) spawn('smoke', new THREE.Vector3(p.x + (rndFx() - 0.5) * 0.2, p.y, 0.25), new THREE.Vector3((rndFx() - 0.5) * 0.25, 0.5 + rndFx() * 0.35, 0.1), 1500 + rndFx() * 800, 0.12 + rndFx() * 0.08);
     const sc = new THREE.Mesh(R3.geo.plane, R3.mat.scorch); sc.scale.setScalar(0.75); sc.position.set(p.x, p.y, VIEW.PANEL_Z + 0.03); sc.renderOrder = 1; lv.root.add(sc); lv.scorch.push(sc);
@@ -1425,17 +1309,18 @@ function burst(s){
 function undo(){
   if (!G.s || !G.s.hist.length) return;
   if (G.pending) resolvePending();
-  const was = G.s; G.s = undoMove(G.s); hideBanners(); Snd.humOff(); G.won = 0; G.celebrate = 0; if (R3 && R3.level) endParty(R3.level); log('input', 'undo', 'moves=' + G.s.moves);
+  const was = G.s; G.s = undoMove(G.s); hideBanners(); Snd.humOff(); G.won = 0; G.celebrate = 0; G.sparkAt = 0; if (R3 && R3.level) endParty(R3.level); log('input', 'undo', 'moves=' + G.s.moves);
   Snd.tick();
   const lv = R3 && R3.level;
   if (lv){
     lv.rings.forEach((R, ri) => { const d = gNorm(G.s.g[ri] - was.g[ri]); if (d){ const dir = d === 1 ? 1 : -1, from = R.vis; R.cont += dir; R.anim = { from, to: R.cont, t0: now(), ms: CFG.CLICK_MS, back: false }; }
       if (R.lock && !(G.s.unl & (1 << ri))) R.lockOff = 0; });
     lv.scorch.forEach(m => lv.root.remove(m)); lv.scorch = [];
-    lv.lamps.forEach(Lm => { Lm.lit = false; });
+    lv.socks.forEach(Sk => { Sk.lit = false; });
   }
   G.shown = showState(G.s, now() - 10000);
   if (G.s.res.lit) Snd.humOn(0.6);
+  if (isFail(was) && G.s.li <= 2){ const sol = solve(G.s); if (sol && sol.length) G.hint = { m: sol[0], until: now() + 3600 }; }   // онбординг: после искры — подсказка картинкой
   hud();
 }
 function showHint(m, ms){
@@ -1447,7 +1332,7 @@ function showHint(m, ms){
 function applyPath(path, instant){
   for (const m of path){ G.s = applyMove(G.s, m); if (isFail(G.s) || isWin(G.s)) break; }
   const lv = R3 && R3.level; if (lv) lv.rings.forEach((R, ri) => { R.cont = R.vis = G.s.g[ri]; R.anim = null; });
-  resolvePending(); if (instant){ G.shown.t0 = now() - 5000; if (G.won) G.won = now() + 50; }
+  resolvePending(); if (instant){ G.shown.t0 = now() - 5000; if (G.won) G.won = now() + 50; if (G.sparkAt) spark(); }
 }
 
 // --- частицы (позиции — функция от абсолютного времени) ---
@@ -1499,9 +1384,9 @@ cv.addEventListener('pointerdown', (e) => {
   Snd.init(); if (G.screen !== 'game' || !G.s || G.press) return;
   const ri = pickRing(e.clientX, e.clientY);
   if (ri < 0){ log('input', 'miss'); return; }
-  if (isFail(G.s)){ log('input', 'press', 'fail'); Snd.deny(); toast('Сначала отмени ход — тут замыкание'); return; }
+  if (isFail(G.s)){ log('input', 'press', 'fail'); Snd.deny(); toast('Сначала отмени ход — тут искра'); return; }
   if (isWin(G.s)) return;
-  if (ringLocked(G.s, ri)){ log('input', 'press', 'ring=' + G.s.L.rings[ri].id + ' locked'); Snd.deny(); buzz(15); toast('Подкова ' + G.s.L.rings[ri].id + ' на замке: зажги лампочку ' + (G.s.C.lockLamp[ri] + 1)); R3.level.rings[ri].shake = now(); return; }
+  if (ringLocked(G.s, ri)){ log('input', 'press', 'ring=' + G.s.L.rings[ri].id + ' locked'); Snd.deny(); buzz(15); toast('Подкова на замке: соедини ' + COLORS[G.s.C.lockColor[ri]].ins.replace(/им$/, 'ие') + ' гнёзда'); R3.level.rings[ri].shake = now(); return; }
   const s = ringScreen(ri);
   G.press = { ri, id: e.pointerId, x: e.clientX, y: e.clientY, cx: s.x, cy: s.y, rpx: s.rpx, a: 0, acc: 0, drag: false, dir: 0, clicks: 0 };
   G.press.a = pointerAngle(G.press, e);
@@ -1581,6 +1466,7 @@ function renderFrame(){
   const dt = performance.now() - t0;
   R3.frames.push(dt); if (R3.frames.length > 240) R3.frames.shift();
   if (G.celebrate && tNow >= G.celebrate) celebrate();
+  if (G.sparkAt && tNow >= G.sparkAt) spark();
   if (G.won && tNow >= G.won) showWon();
   if (toastUntil && tNow > toastUntil){ $('toast').classList.add('hide'); toastUntil = 0; }
 }
