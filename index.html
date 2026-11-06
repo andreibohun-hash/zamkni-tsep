@@ -50,13 +50,11 @@ button:active{transform:translateY(2px)}
 .banner.show{display:flex}
 .banner b{display:block;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
 #dead b{color:var(--danger)}
-/* Победа — внизу, под пальцем: крупно, звёзды, большая «Дальше». Стартует с видимого состояния (§9). */
+/* Победа — внизу, под пальцем: крупно, без цифр и звёзд (Э-3), большая «Дальше». Стартует с видимого состояния (§9). */
 #won{top:auto;bottom:calc(env(safe-area-inset-bottom) + 90px);flex-direction:column;align-items:stretch;gap:8px;padding:14px 16px 16px;border-radius:24px;
   background:linear-gradient(#fffaf0,#fff1c9);box-shadow:0 10px 30px rgba(0,0,0,.45),0 0 0 3px #ffcf3a inset;animation:wonIn .35s cubic-bezier(.2,1.4,.4,1)}
 #won .row{display:flex;align-items:center;gap:12px}
 #won b{color:#b86e00;font-size:28px;font-weight:1000;letter-spacing:.3px;text-transform:none}
-#won .stars{display:flex;gap:4px;margin-left:auto} #won .stars svg{width:30px;height:30px}
-#won .stars .off{opacity:.25}
 #won #won-text{color:#5a4a2a;font-size:15px}
 #won button{width:100%;font-size:22px;padding:14px 16px;border-radius:16px}
 @keyframes wonIn{from{transform:translateY(16px) scale(.97)}to{transform:none}}
@@ -98,7 +96,7 @@ button:active{transform:translateY(2px)}
   <div id="dead" class="banner"><div class="pic"><span id="dead-a"></span><svg class="zap" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z" fill="#ff4d4d" stroke="#8a1010" stroke-width="1.4" stroke-linejoin="round"/></svg><span id="dead-b"></span></div>
     <div class="txt"><b id="dead-title">Искра!</b></div><button id="dead-undo">Отменить</button></div>
   <div id="won" class="banner"><div class="row"><svg class="zap" viewBox="0 0 24 24"><circle cx="12" cy="10" r="6.5" fill="#ffd76a" stroke="#a86a00" stroke-width="1.4"/><path d="M9 17h6M10 20h4" stroke="#a86a00" stroke-width="1.8" stroke-linecap="round"/></svg>
-    <b>Горит!</b><div class="stars" id="won-stars"></div></div><span id="won-text"></span><button id="won-next">Дальше</button></div>
+    <b>Горит!</b></div><span id="won-text"></span><button id="won-next">Дальше</button></div>
   <footer>
     <button id="btn-undo"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>Отмена</button>
     <button id="btn-reset"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg>Заново</button>
@@ -351,6 +349,28 @@ function currentFlow(C, g, res){
   }
   return { rings, socks, maxStep };
 }
+// Тусклый ток (v0.3.1): гнездо сразу красит свою сеть, ещё до того, как пара замкнулась, — видно, куда уже дошёл цвет.
+// rings[ri] — { color, step, fromTip } для подковы в сети с гнездом (color −2: в сети два цвета, это искра), иначе null;
+// pads[pi] — цвет сети пятачка (−1 — гнёзд нет); contacts — касания ri·8+k: конец подковы в гнезде, на пятачке или на конце соседки.
+function colorNets(C, g){
+  const p = Int16Array.from(C.base);
+  for (let ri = 0; ri < C.n; ri++){ const t = tipsOf(g[ri]); unite(p, C.tipPt[ri][t[0]], C.tipPt[ri][t[1]]); }
+  const rc = new Map();
+  for (const S of C.socks){ const r = find(p, S.pt), c = rc.get(r); rc.set(r, c === undefined || c === S.color ? S.color : -2); }
+  const colorOf = (pt) => { const c = rc.get(find(p, pt)); return c === undefined ? -1 : c; };
+  const adj = pointGraph(C, g), dist = new Map(), q = [];
+  for (const S of C.socks) if (!dist.has(S.pt)){ dist.set(S.pt, 0); q.push(S.pt); }
+  for (let qi = 0; qi < q.length; qi++){ const u = q[qi]; for (const e of adj[u]) if (!dist.has(e.to)){ dist.set(e.to, dist.get(u) + 1); q.push(e.to); } }
+  const rings = [], pads = C.padPts.map(pp => colorOf(pp[0])), contacts = new Set();
+  for (let ri = 0; ri < C.n; ri++){
+    const t = tipsOf(g[ri]), a = C.tipPt[ri][t[0]], b = C.tipPt[ri][t[1]], c = colorOf(a);
+    if (c === -1){ rings.push(null); } else { const da = dist.has(a) ? dist.get(a) : 99, db = dist.has(b) ? dist.get(b) : 99;
+      rings.push({ color: c, step: Math.min(da, db), fromTip: da <= db ? t[0] : t[1] }); }
+    for (const k of t){ const pt = C.pts[C.tipPt[ri][k]];
+      if (pt.sock >= 0 || pt.pad >= 0 || pt.tips.some(o => o.ri !== ri && tipsOf(g[o.ri]).includes(o.k))) contacts.add(ri * 8 + k); }
+  }
+  return { rings, pads, contacts };
+}
 // Где искра: подковы и точки на пути между гнёздами разных цветов (для почернения, искр и причины).
 function faultInfo(C, g, res){
   if (res.kind !== 'spark') return null;
@@ -512,6 +532,11 @@ const VIEW = {
   PICK_R: 1.45,                // попадание по подкове: до 1,45 радиуса от центра
   TAP_PX: 10,                  // порог тап/драг
   DRAG_FOLLOW: 0.55,           // доля угла пальца, на которую подкова отходит от щелчка (остальное — прыжок трещотки на полпути)
+  PREVIEW_MS: 180,             // превью при касании — не раньше: быстрый тап не мигает призраком (lesson-tap-hold-gap)
+  HOLD_MS: 550,                // палец дольше без драга — «посмотреть»: отпускание хода не делает. Короче — тап, сколько бы ни длился
+  DIM_MIX: 0.85,               // тусклый ток: сила бусин цвета гнезда на меди, пока пара не замкнулась (горящая — 0,92, меньше 0,9 — режим «тускло»)
+  DIM_IN_MS: 160,              // тусклый ток проявляется после щелчка
+  SOCK_OUT: 0.26,              // гнездо на свободном конце вынесено наружу от оси: дуга идёт по его краю, а не поверх (Э-7)
   DPR_MAX: 2,
   BG_TOP: '#3b4357', BG_BOTTOM: '#1d212c', METAL: '#d9884a', FAULT: '#ff3b2f',
   // цвета пар (порядок — как COLORS в ядре): плафон, свечение, кольцо гнезда
@@ -576,7 +601,10 @@ const Snd = {
   ratchet(dir){ if (!this.ok()) return; const t = this.ac.currentTime;   // трещотка подковы: сухой тик, против часовой чуть ниже
     this.noiseBurst(t, 0.016, 0.22, 'highpass', 3800); this.osc('square', dir > 0 ? 2500 : 2150, 1500, t, 0.018, 0.045); this.osc('triangle', dir > 0 ? 560 : 500, 380, t + 0.004, 0.035, 0.07); log('sound', 'ratchet'); },
   contact(){ if (!this.ok()) return; const t = this.ac.currentTime;   // медь коснулась меди: короткий металлический «тинк»
-    this.osc('sine', 3200, 2900, t, 0.06, 0.05); this.osc('triangle', 1400, 1300, t, 0.05, 0.04); },
+    this.osc('sine', 3200, 2900, t, 0.06, 0.05); this.osc('triangle', 1400, 1300, t, 0.05, 0.04); log('sound', 'contact'); },
+  off(){ if (!this.ok()) return; const t = this.ac.currentTime;       // пара погасла: глухое «пф» вниз
+    const n = this.noiseBurst(t, 0.18, 0.14, 'lowpass', 1100); n.f.frequency.setValueAtTime(1100, t); n.f.frequency.exponentialRampToValueAtTime(180, t + 0.18);
+    this.osc('sine', 380, 120, t, 0.18, 0.07); log('sound', 'off'); },
   humOn(level){ if (!this.ok()) return; const t = this.ac.currentTime;    // гул тока: 50 и 100 Гц через фильтр, держится, пока горит
     if (!this.hum){ const g = this.ac.createGain(), f = this.ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420; g.gain.value = 0.0001; f.connect(g).connect(this.out);
       const o1 = this.ac.createOscillator(), o2 = this.ac.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 100; o2.type = 'sine'; o2.frequency.value = 50; o1.connect(f); o2.connect(f); o1.start(); o2.start();
@@ -618,9 +646,9 @@ function goto(screen){
   if (screen === 'help') card.innerHTML = `<h2>Как играть</h2><ul class="rules">
       <li><b>Крути подкову пальцем</b> — щелчками в любую сторону. <b>Тап</b> — щелчок по часовой.</li>
       <li>Ток идёт по подкове от конца до конца и дальше — в то, чего коснулся конец: гнездо, соседнюю подкову, медный пятачок.</li>
-      <li><b>Соедини гнёзда одного цвета</b> — плафоны загорятся. Цель — все пары.</li>
+      <li><b>Соедини гнёзда одного цвета</b> — плафоны загорятся. Цель — все пары. Пока пара не сошлась, цвет гнезда тускло бежит по подковам, до которых дотянулся.</li>
       <li><b>Искра:</b> разные цвета встретились в одной цепочке. Отмена бесплатна.</li>
-      <li>Пока держишь палец на подкове — видно, куда она встанет и что загорится.</li></ul>
+      <li><b>Подержи палец</b> на подкове — видно, куда она встанет и что загорится. Отпустишь — она останется на месте.</li></ul>
       <button class="primary" data-act="menu">Понятно</button>`;
 }
 $('card').addEventListener('click', (e) => {
@@ -647,7 +675,7 @@ function toast(msg, ms){ const t = $('toast'); t.textContent = msg; t.classList.
 function hud(){
   const L = G.s ? G.s.L : LEVELS[0];
   $('hud-level').textContent = (G.s ? G.s.li + 1 : 1) + ' · ' + L.name;
-  $('hud-moves').textContent = G.s ? 'щелчков ' + G.s.moves : '';
+  $('hud-moves').textContent = '';   // Э-9: счётчика щелчков на экране нет (в журнале — level.win moves/par)
   const busy = $('dead').classList.contains('show') || $('won').classList.contains('show');
   $('hint').textContent = busy ? '' : (L.hint || '');
   $('btn-mute').classList.toggle('off', !!G.save.muted);
@@ -677,7 +705,7 @@ function startLevel(li){
 }
 // Что показать для состояния: ток (если что-то горит) или повреждение. t0 — когда итог начал проигрываться.
 function showState(s, t0, turned){
-  const res = s.res, out = { res, g: s.g.slice(), t0, flow: null, fault: null, clash: null };
+  const res = s.res, out = { res, g: s.g.slice(), t0, flow: null, fault: null, clash: null, nets: colorNets(s.C, s.g) };
   if (isFailKind(res.kind)){ out.fault = faultInfo(s.C, s.g, res); out.clash = clashOf(s, out.fault, turned === undefined ? -1 : turned); }
   else if (res.lit) out.flow = currentFlow(s.C, s.g, res);
   return out;
@@ -714,7 +742,7 @@ void main(){
 // за фронтом — бегущие импульсы света. uBurn — потемневшая от искры дуга. uGhost: 1 — превью тока (пунктир), 2 — превью искры (красный).
 const SH_CORE = `
 uniform vec3 uCopper; uniform vec3 uGlow; uniform vec3 uFault; uniform vec3 uLight;
-uniform float uOn; uniform float uHead; uniform float uDir; uniform float uBurn; uniform float uTime; uniform float uGhost; uniform float uWin;
+uniform float uOn; uniform float uHead; uniform float uDir; uniform float uBurn; uniform float uTime; uniform float uGhost; uniform float uWin; uniform float uMix;
 varying vec3 vW; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
 void main(){
   vec3 N = normalize(vN), L = normalize(uLight);
@@ -725,7 +753,12 @@ void main(){
   float u = uDir > 0.0 ? vUv.x : 1.0 - vUv.x;
   float lit = uOn * step(u, uHead);
   float run = 0.5 + 0.5 * sin(u * 26.0 - uTime * (9.0 + 9.0 * uWin));
-  c = mix(c, uGlow * (1.05 + 0.45 * run + 0.6 * uWin * pow(run, 4.0)), lit * 0.92);
+  vec3 full = uGlow * (1.05 + 0.45 * run + 0.6 * uWin * pow(run, 4.0));
+  // тусклый ток (uMix < 0.9): медь темнее, по ней медленно ползут бусины цвета гнезда — «цвет дошёл сюда», но пара не горит
+  float bead = smoothstep(0.5, 0.95, 0.5 + 0.5 * sin(u * 19.0 - uTime * 2.4));
+  vec3 weak = mix(c * 0.7, uGlow * 1.2, 0.12 + 0.88 * bead);
+  float dimK = step(uMix, 0.9);
+  c = mix(c, mix(full, weak, dimK), lit * uMix);
   c += uGlow * uOn * smoothstep(0.12, 0.0, abs(u - uHead)) * step(uHead, 0.995) * 1.6;
   if (uGhost > 0.5){
     float d = fract(u * 7.0 - uTime * 2.2);
@@ -770,6 +803,8 @@ const COLD = /[?&]cold=1/.test(location.search) ? '\n// cold ' + Date.now() + '\
 function lin(hex){ return new THREE.Color(hex); }
 const LIGHT_DIR = new THREE.Vector3(-0.45, 0.8, 0.6);
 const PAIR_GLOW = VIEW.PAIR.map(P => new THREE.Color(P.glow));
+const PAIR_DIM = VIEW.PAIR.map(P => new THREE.Color(P.glass));
+const TIP_WHITE = new THREE.Color(0xfff1b0);   // тусклый ток — насыщенный цвет стекла гнезда, горящая пара — светлый glow
 const STEP = Math.PI / 4;
 const ARC0 = 3 * Math.PI / 4;           // торус-дуга начинается здесь: при g = 0 разрыв смотрит вверх, uv.x = 0 у конца g−1
 
@@ -839,12 +874,13 @@ function initRenderer(){
     sphere: new THREE.IcosahedronGeometry(1, 1),
     dome: new THREE.SphereGeometry(VIEW.SOCK_R, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2),
     rim: new THREE.TorusGeometry(VIEW.SOCK_RIM - 0.05, 0.05, 10, 40),
+    washer: new THREE.RingGeometry(0.42, 1, 36),
   };
   const mat = {
     metal: new THREE.MeshStandardMaterial({ color: lin(VIEW.METAL), metalness: 0.9, roughness: 0.28 }),
     hub: new THREE.MeshStandardMaterial({ color: 0x2a2f3a, metalness: 0.6, roughness: 0.4 }),
     brass: new THREE.MeshStandardMaterial({ color: 0xd8a640, metalness: 0.85, roughness: 0.3 }),
-    pad: new THREE.MeshStandardMaterial({ color: 0xb8582a, metalness: 0.65, roughness: 0.45, polygonOffset: true, polygonOffsetFactor: -1 }),
+    pad: new THREE.MeshStandardMaterial({ color: 0xe0945a, metalness: 0.8, roughness: 0.3, emissive: 0x000000, polygonOffset: true, polygonOffsetFactor: -1 }),   // пятачок — та же медь, что подковы (Э-7)
     ghostArc: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false }),
     blob: new THREE.MeshBasicMaterial({ map: radialTexture('blob'), transparent: true, depthWrite: false }),
     halo: new THREE.MeshBasicMaterial({ map: radialTexture('halo'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
@@ -875,7 +911,7 @@ function initRenderer(){
 function coreMaterial(){
   return new THREE.ShaderMaterial({ vertexShader: SH_VERT, fragmentShader: SH_CORE + COLD,
     uniforms: { uCopper: { value: lin(VIEW.METAL) }, uGlow: { value: lin(VIEW.PAIR[0].glow) }, uFault: { value: lin(VIEW.FAULT) }, uLight: { value: LIGHT_DIR },
-      uOn: { value: 0 }, uHead: { value: 0 }, uDir: { value: 1 }, uBurn: { value: 0 }, uTime: { value: 0 }, uGhost: { value: 0 }, uWin: { value: 0 } } });
+      uOn: { value: 0 }, uHead: { value: 0 }, uDir: { value: 1 }, uBurn: { value: 0 }, uTime: { value: 0 }, uGhost: { value: 0 }, uWin: { value: 0 }, uMix: { value: 0.92 } } });
 }
 function domeMaterial(ci){
   const P = VIEW.PAIR[ci];
@@ -987,11 +1023,21 @@ function badge(tex, size){
   m.userData.ownMat = true; m.scale.setScalar(size || 0.3); m.renderOrder = 7; return m;
 }
 
+// Где рисовать гнездо (Э-7): на свободном конце — чуть наружу от оси, чтобы дуга шла по краю гнезда, а не поверх; конец подковы
+// входит в его край. На стыке двух подков и на пятачке — в самой точке (там дуги соседок сходятся с двух сторон).
+// Вынос не делается, если он придвинет гнездо к соседнему (6-й: два диагональных гнезда у верхнего стыка).
+function sockPos(Cc, S){
+  const p = Cc.pts[S.pt]; if (p.tips.length !== 1 || p.pad >= 0) return { x: p.x, y: p.y };
+  const d = dirVec(p.tips[0].k), q = { x: p.x + d.x * VIEW.SOCK_OUT, y: p.y + d.y * VIEW.SOCK_OUT };
+  for (const O of Cc.socks){ if (O === S) continue; const o = Cc.pts[O.pt], d0 = Math.hypot(o.x - p.x, o.y - p.y), d1 = Math.hypot(o.x - q.x, o.y - q.y);
+    if (d1 < d0 && d1 < 2 * VIEW.SOCK_RIM + 0.4) return { x: p.x, y: p.y }; }
+  return q;
+}
 // --- поле: прямоугольник подков и гнёзд ---
 function fieldBox(L, Cc){
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const r of L.rings){ const c = ringCenter(r), e = CFG.R + CFG.TUBE_R; x0 = Math.min(x0, c.x - e); x1 = Math.max(x1, c.x + e); y0 = Math.min(y0, c.y - e); y1 = Math.max(y1, c.y + e); }
-  for (const S of Cc.socks){ const p = Cc.pts[S.pt], e = VIEW.SOCK_RIM + 0.05; x0 = Math.min(x0, p.x - e); x1 = Math.max(x1, p.x + e); y0 = Math.min(y0, p.y - e); y1 = Math.max(y1, p.y + e); }
+  for (const S of Cc.socks){ const p = sockPos(Cc, S), e = VIEW.SOCK_RIM + 0.05; x0 = Math.min(x0, p.x - e); x1 = Math.max(x1, p.x + e); y0 = Math.min(y0, p.y - e); y1 = Math.max(y1, p.y + e); }
   return { x0, x1, y0, y1 };
 }
 
@@ -1026,15 +1072,23 @@ function buildLevel(L, noWarm){
     root.add(g);
     lv.rings.push({ id: r.id, g, rot, arc, core, lock, lockBadge, lockOff: 0, cont: gs[ri], vis: gs[ri], anim: null, shake: 0 });
   });
-  // пятачки: медные кружки в точках касания и полосы между ними (по цепочке ближайших); четыре близкие точки — один круг
+  // пятачки (Э-7): медь, как у подков, — шайба в центре и короткие лучи к каждой точке касания с пятачком-«пяткой» на конце:
+  // читается «соединяет всех», а не дыра или препятствие. Далёкие точки — пятки и полосы между ними (по цепочке ближайших).
+  lv.pads = [];
   (L.pads || []).forEach((pd, pi) => {
-    const pts = Cc.padPts[pi].map(i => Cc.pts[i]), order = [pts[0]], left = pts.slice(1);
+    const mat = R3.mat.pad.clone(), pts = Cc.padPts[pi].map(i => Cc.pts[i]), order = [pts[0]], left = pts.slice(1);
     const cx = pts.reduce((a, p) => a + p.x, 0) / pts.length, cy = pts.reduce((a, p) => a + p.y, 0) / pts.length, rad = Math.max(...pts.map(p => Math.hypot(p.x - cx, p.y - cy)));
-    if (pts.length >= 3 && rad < 0.7){ const d = new THREE.Mesh(R3.geo.disk, R3.mat.pad); d.scale.setScalar(rad + CFG.PAD_R); d.position.set(cx, cy, PZ + 0.02); root.add(d); return; }
-    while (left.length){ const last = order[order.length - 1]; let bi = 0, bd = Infinity; left.forEach((p, i) => { const d = Math.hypot(p.x - last.x, p.y - last.y); if (d < bd){ bd = d; bi = i; } }); order.push(left.splice(bi, 1)[0]); }
-    for (const p of order){ const d = new THREE.Mesh(R3.geo.disk, R3.mat.pad); d.scale.setScalar(CFG.PAD_R + 0.04); d.position.set(p.x, p.y, PZ + 0.02); root.add(d); }
-    for (let i = 1; i < order.length; i++){ const a = order[i - 1], b = order[i], len = Math.hypot(b.x - a.x, b.y - a.y);
-      const st = new THREE.Mesh(R3.geo.plane, R3.mat.pad); st.scale.set(len, CFG.PAD_R * 1.3, 1); st.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, PZ + 0.02); st.rotation.z = Math.atan2(b.y - a.y, b.x - a.x); root.add(st); }
+    const strip = (a, b, w) => { const len = Math.hypot(b.x - a.x, b.y - a.y), st = new THREE.Mesh(R3.geo.plane, mat); st.scale.set(len, w, 1); st.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, PZ + 0.022); st.rotation.z = Math.atan2(b.y - a.y, b.x - a.x); root.add(st); };
+    const heel = (p) => { const d = new THREE.Mesh(R3.geo.disk, mat); d.scale.setScalar(0.1); d.position.set(p.x, p.y, PZ + 0.024); root.add(d); };
+    if (pts.length >= 3 && rad < 0.7){
+      const w = new THREE.Mesh(R3.geo.washer, mat); w.scale.setScalar(0.24); w.position.set(cx, cy, PZ + 0.026); w.userData.ownMat = true; root.add(w);
+      for (const p of pts){ strip({ x: cx, y: cy }, p, 0.075); heel(p); }
+    } else {
+      while (left.length){ const last = order[order.length - 1]; let bi = 0, bd = Infinity; left.forEach((p, i) => { const d = Math.hypot(p.x - last.x, p.y - last.y); if (d < bd){ bd = d; bi = i; } }); order.push(left.splice(bi, 1)[0]); }
+      order.forEach((p, i) => { heel(p); if (i) strip(order[i - 1], p, 0.09); });
+      root.children[root.children.length - 1].userData.ownMat = true;
+    }
+    lv.pads.push({ mat });
   });
   // точки касания: стык двух подков — медная заклёпка; пустое место — тёмная точка
   Cc.pts.forEach((p) => { if (p.pad >= 0 || p.sock >= 0) return;
@@ -1043,7 +1097,7 @@ function buildLevel(L, noWarm){
   lv.tipGlow = L.rings.map(() => [0, 1].map(() => { const m = new THREE.Mesh(R3.geo.plane, R3.mat.contact.clone()); m.userData.ownMat = true; m.renderOrder = 8; m.visible = false; root.add(m); return { m, on: false, t0: 0 }; }));
   // гнёзда: цветное кольцо на панели, тёмный колодец со значком формы, цветной купол-плафон; ореол и свет на панели при токе
   Cc.socks.forEach((S, si) => {
-    const p = Cc.pts[S.pt], ci = S.color, g = new THREE.Group(); g.position.set(p.x, p.y, PZ);
+    const p = sockPos(Cc, S), ci = S.color, g = new THREE.Group(); g.position.set(p.x, p.y, PZ);
     const rim = new THREE.Mesh(R3.geo.rim, R3.mat.rim[ci]); rim.position.z = 0.05; g.add(rim);
     const well = new THREE.Mesh(R3.geo.disk, R3.mat.well); well.scale.setScalar(VIEW.SOCK_RIM - 0.04); well.position.z = 0.03; g.add(well);
     const icon = badge(shapeTexture(COLORS[ci].shape), 0.26); icon.position.z = 0.06; icon.renderOrder = 2; g.add(icon);
@@ -1137,11 +1191,17 @@ function syncView(tNow){
   const faulty = S.fault ? new Set(S.fault.rings) : null;
   lv.rings.forEach((R, ri) => {
     const u = R.core.material.uniforms; u.uTime.value = time; u.uGhost.value = 0;
-    const f = S.flow && S.flow.rings[ri];
-    const live = f && S.g[ri] === (G.s ? G.s.g[ri] : S.g[ri]) && !R.anim;
+    const f = S.flow && S.flow.rings[ri], still = S.g[ri] === (G.s ? G.s.g[ri] : S.g[ri]) && !R.anim;
+    const live = f && still && flowK - f.step > 0;
+    // тусклый ток (Э-2): подкова в сети гнезда — цветом этого гнезда, пока пара не замкнулась; проявляется за DIM_IN_MS
+    const d = !S.clash && still && S.nets && S.nets.rings[ri], dc = d && d.color >= 0 ? d.color : -1;
+    if (dc !== R.dimC){ R.dimC = dc; R.dimT0 = tNow; }
+    u.uMix.value = 0.92;
     if (live){ const tips = tipsOf(S.g[ri]); u.uOn.value = 1; u.uDir.value = f.fromTip === tips[0] ? 1 : -1; u.uHead.value = Math.max(0, Math.min(1, flowK - f.step)); u.uGlow.value.copy(PAIR_GLOW[f.color]); }
     else if (S.clash && S.clash.rings[ri] && burnK < 1){ const c = S.clash.rings[ri], tips = tipsOf(S.g[ri]);   // ток своего цвета бежит к точке встречи
       u.uOn.value = 1; u.uDir.value = c.fromTip === tips[0] ? 1 : -1; u.uHead.value = Math.max(0, Math.min(1, clashK * c.of - c.step)); u.uGlow.value.copy(PAIR_GLOW[c.color]); }
+    else if (dc >= 0){ const tips = tipsOf(S.g[ri]); u.uOn.value = 1; u.uHead.value = 1; u.uDir.value = d.fromTip === tips[0] ? 1 : -1;
+      u.uMix.value = VIEW.DIM_MIX * Math.min(1, (tNow - R.dimT0) / (VIEW.DIM_IN_MS / ts)); u.uGlow.value.copy(PAIR_DIM[dc]); }
     else { u.uOn.value = 0; u.uHead.value = 0; }
     u.uBurn.value = faulty && faulty.has(ri) ? burnK * 0.85 : 0;
   });
@@ -1150,6 +1210,7 @@ function syncView(tNow){
     tips.forEach((k, j) => { const T = lv.tipGlow[ri][j], on = !R.anim && !(G.press && G.press.ri === ri && G.press.drag) && tipContact(lv.Cc, G.s.g, ri, k);
       if (on && !T.on) T.t0 = tNow; T.on = on; T.m.visible = on;
       if (on){ const d = dirVec(k), pop = Math.max(0, 1 - (tNow - T.t0) / (260 / ts)); T.m.position.set(c.x + d.x * CFG.R, c.y + d.y * CFG.R, 0.12);
+        const nc = S.nets && S.nets.rings[ri] && S.nets.rings[ri].color >= 0 ? S.nets.rings[ri].color : -1; T.m.material.color.copy(nc >= 0 ? PAIR_GLOW[nc] : TIP_WHITE);
         T.m.scale.setScalar(0.5 + 0.5 * pop + 0.03 * Math.sin(time * 5 + ri)); T.m.material.opacity = 0.75 + 0.25 * pop; } }); });
   // гнёзда: плафоны пары разгораются, когда ток дошёл до второго гнезда
   lv.socks.forEach((Sk, si) => {
@@ -1157,12 +1218,15 @@ function syncView(tNow){
     let target = 0;
     if (sf){ const k = flowK - sf.step; target = Math.max(0, Math.min(1, k)); if (k > 0 && !Sk.lit){ Sk.lit = true; Sk.litT0 = tNow; onSockLit(si); } }
     else Sk.lit = false;
-    Sk.glow += (target - Sk.glow) * 0.25; if (Math.abs(target - Sk.glow) < 0.002) Sk.glow = target;
+    Sk.glow += (target - Sk.glow) * (target < Sk.glow ? 0.09 : 0.25); if (Math.abs(target - Sk.glow) < 0.002) Sk.glow = target;   // гаснет медленнее, чем загорается: потеря видна (Э-6)
     const gl = Sk.glow, fl = 1 + 0.05 * Math.sin(time * 23 + si) + 0.03 * Math.sin(time * 6.1);
     Sk.dome.material.uniforms.uGlow.value = gl; Sk.dome.material.uniforms.uTime.value = time;
     Sk.halo.visible = Sk.pool.visible = gl > 0.01; Sk.halo.scale.setScalar((0.9 + 1.1 * gl) * fl); Sk.halo.material.opacity = gl * 0.75;
     Sk.pool.material.opacity = gl * 0.9;
   });
+  // пятачки: цвет сети, которая через них идёт (тускло, горящая пара — ярко)
+  (lv.pads || []).forEach((Pd, pi) => { const c = S.nets && !S.clash ? S.nets.pads[pi] : -1, e = Pd.mat.emissive;
+    if (c >= 0){ const on = S.res.lit & (1 << c); e.copy(on ? PAIR_GLOW[c] : PAIR_DIM[c]).multiplyScalar(on ? 1.0 : 0.75 + 0.2 * Math.sin(time * 2.4 + pi)); } else e.setRGB(0, 0, 0); });
   // праздник: вспышка плафонов (ореол ×2 и обратно), вращающиеся лучи, тёплая волна по кадру, ток бежит ярче
   const pk = lv.party ? (tNow - lv.party) / (VIEW.CELEBRATE_MS / ts) : -1;
   lv.rings.forEach(R => { R.core.material.uniforms.uWin.value = pk >= 0 ? 1 : 0; });
@@ -1172,7 +1236,8 @@ function syncView(tNow){
     if (lv.wash){ const cam = R3.camera; lv.wash.position.set(cam.position.x, R3.camLook.y, 1.5); lv.wash.scale.set(40, 40, 1); lv.wash.material.opacity = 0.3 * Math.max(0, 1 - pk * 2.2); }
   }
   // вспышки замыкания: два-три мигания за 300 мс, потом гаснут
-  lv.flashes = lv.flashes.filter(F => { const k = (tNow - F.t0) / (340 / ts); if (k >= 1){ lv.root.remove(F.m); F.m.material.dispose(); return false; }
+  lv.flashes = lv.flashes.filter(F => { const k = (tNow - F.t0) / ((F.out ? 420 : 340) / ts); if (k >= 1){ lv.root.remove(F.m); F.m.material.dispose(); return false; }
+    if (F.out){ F.m.scale.setScalar(1.7 - 1.3 * k); F.m.material.opacity = 0.55 * (1 - k) * (1 - k); return true; }   // пара погасла: тусклая вспышка сжимается
     const fl = (0.6 + 0.4 * Math.sin(k * 40 + F.seed * 9)) * (1 - k); F.m.scale.setScalar(0.4 + 1.6 * fl); F.m.material.opacity = fl; return true; });
   applyPreview(time);
 }
@@ -1188,7 +1253,7 @@ function onSockLit(si){
 // или красные дуги и молния там, где искрит. Подсказка показывает то же для первого хода решения и стрелку, куда крутить.
 function previewNow(){
   const P = G.press;
-  if (P && !G.pending && G.s && legalMoves(G.s).length) return { m: moveOf(P.ri, P.dir || 1), hint: false };
+  if (P && !G.pending && G.s && legalMoves(G.s).length && (P.drag || performance.now() - P.tp >= VIEW.PREVIEW_MS)) return { m: moveOf(P.ri, P.dir || 1), hint: false };   // быстрый тап призраком не мигает
   if (G.hint && now() < G.hint.until && !G.pending && !P) return { m: G.hint.m, hint: true };
   return null;
 }
@@ -1200,13 +1265,15 @@ function applyPreview(time){
   if (ringLocked(G.s, ri)) return;
   const R = lv.rings[ri], pulse = 1 + 0.08 * Math.sin(time * 9);
   lv.ghostArc.visible = true; lv.ghostArc.position.set(c.x, c.y, 0.03); lv.ghostArc.rotation.z = ARC0 - (R.cont + dir) * STEP;
+  const P = G.press, hk = P && !pm.hint && !P.drag ? Math.max(0, Math.min(1, (performance.now() - P.tp - VIEW.PREVIEW_MS) / (VIEW.HOLD_MS - VIEW.PREVIEW_MS))) : 1;
+  lv.ghostArc.material.opacity = 0.16 + 0.2 * hk;   // призрак плотнеет к HOLD_MS: дальше отпускание — «посмотрел», без хода
   if (pm.hint){ lv.hintRing.visible = true; lv.hintRing.position.set(c.x, c.y, 0.3); lv.hintRing.scale.setScalar(2.9 * pulse);
-    lv.hintArrow.visible = true; lv.hintArrow.position.set(c.x, c.y + 0.15, 0.7); lv.hintArrow.scale.set(2.1 * dir * pulse, 2.1 * pulse, 1); lv.hintArrow.rotation.z = -dir * ((time * 1.6) % 1) * 0.35; }
+    lv.hintArrow.visible = true; lv.hintArrow.position.set(c.x, c.y + 0.12, 0.7); lv.hintArrow.scale.set(1.45 * dir * pulse, 1.45 * pulse, 1); lv.hintArrow.rotation.z = -dir * ((time * 1.6) % 1) * 0.35; }   // Э-8: стрелка внутри подковы — гнёзда и призрак видны
   const n = previewMoveState(G.s, pm.m); if (!n) return;
   if (isFail(n)){
     const f = faultInfo(n.C, n.g, n.res);
     for (const k of f.rings) lv.rings[k].core.material.uniforms.uGhost.value = 2;
-    const pt = faultPoint(n, f, ri); lv.zap.visible = true; lv.zap.position.set(pt.x, pt.y, 0.5); lv.zap.scale.setScalar(0.55 * pulse);
+    const cl = clashOf(n, f, ri), pt = cl ? cl.meet : faultPoint(n, f, ri); lv.zap.visible = true; lv.zap.position.set(pt.x, pt.y, 0.5); lv.zap.scale.setScalar(0.55 * pulse);   // Э-4: молния там, где встретятся токи, — там же будет искра
   } else if (n.res.lit){
     const fl = currentFlow(n.C, n.g, n.res);
     for (const k of Object.keys(fl.rings)){ const u = lv.rings[+k].core.material.uniforms; u.uGhost.value = 1; u.uGlow.value.copy(PAIR_GLOW[fl.rings[k].color]); }
@@ -1235,7 +1302,7 @@ function turnRing(ri, dir, how){
   const before = G.s; G.s = applyMove(G.s, m); G.hint = null;
   if (lv){ const R = lv.rings[ri]; const from = R.vis; R.cont += dir; if (how !== 'drag') R.anim = { from, to: R.cont, t0: now(), ms: CFG.CLICK_MS, back: true }; else { const offNew = G.press ? VIEW.DRAG_FOLLOW * G.press.acc / STEP : 0; R.anim = { from: R.vis - offNew, to: R.cont, t0: now(), ms: 90, back: false }; } }   // драг: остаток угла (acc) не сбрасывается — подкова крутится вслед за пальцем 1:1
   Snd.ratchet(dir); buzz(6);
-  G.shown = { res: { kind: 'open', lit: 0 }, g: before.g.slice(), t0: now(), flow: null, fault: null };   // пока щёлкает — цепь разомкнута
+  G.shown = { res: { kind: 'open', lit: 0 }, g: before.g.slice(), t0: now(), flow: null, fault: null, nets: G.shown ? G.shown.nets : null };   // пока щёлкает — цепь разомкнута; соседки держат свой тусклый цвет
   G.pending = now() + (how === 'drag' ? 90 : CFG.CLICK_MS) / G.timeScale;
   hud();
   return true;
@@ -1245,8 +1312,11 @@ function resolvePending(){
   G.pending = 0;
   const s = G.s, ev = s.ev || [], tv = ev.find(e => e.k === 'turn');
   G.shown = showState(s, now(), tv ? tv.ri : -1);
-  const touches = s.res.kind !== 'open' || s.res.lit;
-  if (touches) Snd.contact();
+  // «тинк» на любое новое касание (Э-2): конец вошёл в гнездо, на пятачок или в конец соседки — даже если ничего не загорелось
+  const h = s.hist[s.hist.length - 1], before = h ? colorNets(s.C, h.g).contacts : new Set();
+  if ([...G.shown.nets.contacts].some(c => !before.has(c))) Snd.contact();
+  const lost = h && !isFail(s) ? (h.res.lit || 0) & ~(s.res.lit || 0) : 0;      // пара погасла (Э-6): «пф» и тусклая вспышка
+  for (const ci of s.C.colors) if (lost & (1 << ci)) pairOut(ci);
   for (const e of ev) if (e.k === 'unlock'){ const R = R3 && R3.level && R3.level.rings[e.ri]; if (R) R.lockOff = now(); Snd.unlock(); toast('Замок открыт'); log('event', 'unlock', s.L.rings[e.ri].id); }
   if (isFail(s)){
     G.sparkAt = now() + VIEW.CLASH_MS / G.timeScale; Snd.humOn(0.4);   // сначала токи бегут навстречу, потом искра (renderFrame → spark)
@@ -1260,8 +1330,15 @@ function resolvePending(){
   } else if (Math.pow(CFG.POS, s.C.n) <= 4096 && isDead(s)) toast('Отсюда не выйти — отмени ход');
   hud();
 }
-const STAR = (on) => '<svg viewBox="0 0 24 24" class="' + (on ? '' : 'off') + '"><path d="M12 2.5l2.9 6 6.6.8-4.9 4.5 1.3 6.5L12 17l-5.9 3.3 1.3-6.5L2.5 9.3l6.6-.8z" fill="#ffb800" stroke="#a86a00" stroke-width="1.3" stroke-linejoin="round"/></svg>';
-function starsFor(moves, par){ return moves <= par ? 3 : moves <= par + Math.max(2, Math.ceil(par * 0.5)) ? 2 : 1; }
+// Пара погасла: короткое «пф», плафоны гаснут с тусклой вспышкой своего цвета и дымком (Э-6).
+function pairOut(ci){
+  Snd.off(); buzz(10); log('fx.start', 'pair.out', COLORS[ci].id);
+  const lv = R3 && R3.level; if (!lv) return;
+  lv.socks.forEach(Sk => { if (Sk.color !== ci) return;
+    const fl = new THREE.Mesh(R3.geo.plane, R3.mat.halo.clone()); fl.userData.ownMat = true; fl.material.color = lin(VIEW.PAIR[ci].glow); fl.position.set(Sk.g.position.x, Sk.g.position.y, 0.5); fl.renderOrder = 9;
+    lv.root.add(fl); lv.flashes.push({ m: fl, t0: now(), seed: 0, out: true });
+    for (let i = 0; i < 2; i++) spawn('smoke', new THREE.Vector3(Sk.g.position.x + (rndFx() - 0.5) * 0.15, Sk.g.position.y + 0.1, 0.3), new THREE.Vector3((rndFx() - 0.5) * 0.2, 0.35 + rndFx() * 0.2, 0.1), 900 + rndFx() * 400, 0.07 + rndFx() * 0.04); });
+}
 // Праздник на месте: лампочки вспыхивают, за ними крутятся лучи, фонтан золотых искр, тёплая волна по панели, жилы бегут быстрее.
 function celebrate(){
   G.celebrate = 0; const lv = R3 && R3.level; if (!lv) return;
@@ -1277,9 +1354,10 @@ function celebrate(){
 }
 function endParty(lv){ lv.party = 0; lv.socks.forEach(Sk => { if (Sk.rays) Sk.rays.visible = false; }); if (lv.wash) lv.wash.material.opacity = 0; }
 function showWon(){
-  G.won = 0; const s = G.s, clean = s.moves <= G.par, last = s.li >= LEVELS.length - 1;
-  $('won-stars').innerHTML = [0, 1, 2].map(i => STAR(i < starsFor(s.moves, G.par))).join('');
-  $('won-text').textContent = 'Щелчков ' + s.moves + (clean ? ' — как у машины' : ' · можно за ' + G.par) + (last ? '. Это последний уровень.' : '');
+  G.won = 0; const s = G.s, last = s.li >= LEVELS.length - 1;
+  // Э-3: без цифр и звёзд, как в «Клапанах» (решение Андрея по v0.5): после трудного уровня плашка не колет «можно за 7»
+  $('won-text').textContent = last ? 'Это последний уровень.' : ''; $('won-text').style.display = last ? '' : 'none';
+  log('event', 'won.banner', 'moves=' + s.moves + ' par=' + G.par);
   $('won-next').textContent = last ? 'В меню' : 'Дальше';
   $('won').classList.add('show'); Snd.ding(2); log('screen', 'won'); hud();
 }
@@ -1309,7 +1387,7 @@ function burst(s){
 function undo(){
   if (!G.s || !G.s.hist.length) return;
   if (G.pending) resolvePending();
-  const was = G.s; G.s = undoMove(G.s); hideBanners(); Snd.humOff(); G.won = 0; G.celebrate = 0; G.sparkAt = 0; if (R3 && R3.level) endParty(R3.level); log('input', 'undo', 'moves=' + G.s.moves);
+  const was = G.s; G.s = undoMove(G.s); hideBanners(); $('toast').classList.add('hide'); toastUntil = 0; Snd.humOff(); G.won = 0; G.celebrate = 0; G.sparkAt = 0; if (R3 && R3.level) endParty(R3.level); log('input', 'undo', 'moves=' + G.s.moves);   // Э-5: тост «сначала отмени» уходит вместе с искрой
   Snd.tick();
   const lv = R3 && R3.level;
   if (lv){
@@ -1325,8 +1403,7 @@ function undo(){
 }
 function showHint(m, ms){
   if (m === undefined){ const sol = G.s && solve(G.s); if (!sol){ toast(isFail(G.s) ? 'Сначала отмени ход' : 'Отсюда не выйти — отмени ход'); return; } if (!sol.length) return; m = sol[0]; }
-  G.hint = { m, until: now() + (ms || 2800) }; log('event', 'hint', 'ring=' + G.s.L.rings[m >> 1].id + ' dir=' + ((m & 1) ? 'ccw' : 'cw'));
-  toast(((m & 1) ? 'Против часовой' : 'По часовой') + ': подкова ' + G.s.L.rings[m >> 1].id, 1900);
+  G.hint = { m, until: now() + (ms || 2800) }; log('event', 'hint', 'ring=' + G.s.L.rings[m >> 1].id + ' dir=' + ((m & 1) ? 'ccw' : 'cw'));   // Э-5: только картинка — призрак, кольцо, стрелка
 }
 // Прогнать ходы сразу (эталонные экраны #win/#fail и дебаг).
 function applyPath(path, instant){
@@ -1388,7 +1465,7 @@ cv.addEventListener('pointerdown', (e) => {
   if (isWin(G.s)) return;
   if (ringLocked(G.s, ri)){ log('input', 'press', 'ring=' + G.s.L.rings[ri].id + ' locked'); Snd.deny(); buzz(15); toast('Подкова на замке: соедини ' + COLORS[G.s.C.lockColor[ri]].ins.replace(/им$/, 'ие') + ' гнёзда'); R3.level.rings[ri].shake = now(); return; }
   const s = ringScreen(ri);
-  G.press = { ri, id: e.pointerId, x: e.clientX, y: e.clientY, cx: s.x, cy: s.y, rpx: s.rpx, a: 0, acc: 0, drag: false, dir: 0, clicks: 0 };
+  G.press = { ri, id: e.pointerId, x: e.clientX, y: e.clientY, cx: s.x, cy: s.y, rpx: s.rpx, a: 0, acc: 0, drag: false, dir: 0, clicks: 0, t0: e.timeStamp || performance.now(), tp: performance.now() };
   G.press.a = pointerAngle(G.press, e);
   try { cv.setPointerCapture(e.pointerId); } catch (err) {}
   G.hint = null;
@@ -1418,7 +1495,12 @@ function onUp(e){
   const R = R3 && R3.level && R3.level.rings[P.ri];
   if (R && P.drag){ R.anim = { from: R.vis, to: R.cont, t0: now(), ms: 140, back: false }; }
   if (e.type === 'pointercancel') return;
-  if (!P.drag && !P.clicks) turnRing(P.ri, 1, 'tap');
+  if (P.drag || P.clicks) return;
+  // Э-1: держал дольше HOLD_MS — смотрел превью, отпускание хода не делает. Короче — тап, сколько бы ни длился (без мёртвой зоны).
+  // Граница — по времени самих событий касания, а не по кадру (lesson-tap-hold-gap).
+  const held = (e.timeStamp || performance.now()) - P.t0;
+  if (held >= VIEW.HOLD_MS){ log('input', 'look', 'ring=' + G.s.L.rings[P.ri].id + ' ms=' + Math.round(held)); return; }
+  turnRing(P.ri, 1, 'tap');
 }
 cv.addEventListener('pointerup', onUp); cv.addEventListener('pointercancel', onUp);
 document.addEventListener('keydown', (e) => {            // дубли на клавиатуру (§3): цифра — по часовой, Shift+цифра — против
@@ -1494,7 +1576,7 @@ window.ZAMKNI_TSEP = {
   play(n){ startLevel(Math.max(0, Math.min(LEVELS.length, n || 1) - 1)); return this.state(); },
   turn(ri, dir){ if (G.pending) resolvePending(); turnRing(ri, dir || 1, 'key'); return this.state(); },
   tap(ri){ if (G.pending) resolvePending(); turnRing(ri, 1, 'tap'); return this.state(); },
-  press(ri, dir){ G.press = { ri, id: -1, x: 0, y: 0, cx: 0, cy: 0, rpx: 1, a: 0, acc: 0, drag: false, dir: dir || 0, clicks: 0 }; const n = previewMoveState(G.s, moveOf(ri, dir || 1)); return n ? { kind: n.res.kind, lit: n.res.lit } : null; },
+  press(ri, dir){ G.press = { ri, id: -1, x: 0, y: 0, cx: 0, cy: 0, rpx: 1, a: 0, acc: 0, drag: false, dir: dir || 0, clicks: 0, t0: 0, tp: -1e9 }; const n = previewMoveState(G.s, moveOf(ri, dir || 1)); return n ? { kind: n.res.kind, lit: n.res.lit } : null; },
   release(){ const P = G.press; G.press = null; return P ? turnRing(P.ri, P.dir || 1, 'tap') : false; },
   undo(){ undo(); return this.state(); },
   goto(screen){ goto(screen); return G.screen; },
